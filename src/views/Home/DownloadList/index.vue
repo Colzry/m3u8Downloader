@@ -3,6 +3,7 @@ import PageHeader from "@/views/Home/components/PageHeader.vue";
 import HButton from "@/views/Home/components/HButton.vue";
 import MainWrapper from "@/views/Home/components/MainWrapper.vue";
 import DownloadItem from "@/views/Home/components/DownloadItem.vue";
+import {validateM3u8Url} from "@/utils/m3u8Validator.js";
 import {useMessage} from "naive-ui";
 import {openFolder} from "@/utils/fs.js";
 import {ref} from "vue";
@@ -15,12 +16,35 @@ const formValue = reactive({
   videoUrl: '',
   videoName: ''
 })
-
 const rules = {
   videoUrl: {
     required: true,
-    message: "请输入合法的视频m3u8链接",
-    trigger: "blur"
+    trigger: ['blur'],
+    validator: (rule, value) => {
+      return new Promise(async (resolve, reject) => {
+        // 必填校验
+        if (!value?.trim()) {
+          reject(new Error('请输入视频m3u8链接'))
+        }
+        // URL格式校验
+        if (!/^https?:\/\//i.test(value)) {
+          reject(new Error('请输入正确格式的m3u8链接'))
+        }
+        try {
+          const result = await validateM3u8Url(value, {
+            checkContent: true,
+            timeout: 6000
+          });
+
+          if (!result.valid) {
+            reject(new Error('此m3u8地址无效'))
+          }
+          resolve()
+        } catch (e) {
+          reject(new Error(`验证失败：${e.message}`))
+        }
+      })
+    },
   },
   videoName: {
     required: true,
