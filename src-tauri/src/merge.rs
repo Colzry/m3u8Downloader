@@ -109,7 +109,7 @@ pub async fn merge_files(
     Ok(())
 }
 
-#[warn(dead_code)]
+#[allow(dead_code)]
 pub async fn merge_ts_to_mp4(
     id: String,
     name: &str,

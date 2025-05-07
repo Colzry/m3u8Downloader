@@ -1,7 +1,7 @@
 use crate::download::download_m3u8;
 use crate::download_manager::{DownloadControl, DownloadManager, DownloadTask};
 #[warn(unused_imports)]
-use crate::merge::{merge_files, merge_ts_to_mp4, sort_ts_files};
+use crate::merge::{merge_files, sort_ts_files};
 use anyhow::Result;
 use std::fs;
 use std::sync::Arc;
