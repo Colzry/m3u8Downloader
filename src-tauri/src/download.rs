@@ -14,12 +14,11 @@ use std::collections::VecDeque;
 use std::time::Duration;
 use std::{
     sync::{
-        atomic::{AtomicUsize, Ordering},
+        atomic::{AtomicUsize, AtomicBool, Ordering},
         Arc,
     },
     time::Instant,
 };
-use std::sync::atomic::AtomicBool;
 use tauri::{AppHandle, Emitter};
 use tokio::sync::Notify;
 use tokio::{
@@ -28,17 +27,16 @@ use tokio::{
     sync::{Mutex, Semaphore},
 };
 
-/// 下载指标跟踪结构体（新增）
+/// 下载指标跟踪结构体（增强版）
 #[derive(Clone)]
 struct DownloadMetrics {
     total_chunks: usize,
     total_bytes: Arc<AtomicUsize>,
     downloaded_bytes: Arc<AtomicUsize>,
     completed_chunks: Arc<AtomicUsize>,
-    speed_samples: Arc<Mutex<VecDeque<(Instant, usize)>>>,
-    total_bytes_valid: Arc<AtomicBool>, // 有效性标志
+    speed_samples: Arc<Mutex<VecDeque<(Instant, usize)>>>, // 原始采样数据
+    total_bytes_valid: Arc<AtomicBool>,                    // 是否有总字节数
 }
-
 impl DownloadMetrics {
     fn new(total_chunks: usize) -> Self {
         Self {
@@ -54,47 +52,33 @@ impl DownloadMetrics {
     fn mark_total_bytes_invalid(&self) {
         self.total_bytes_valid.store(false, Ordering::Relaxed);
     }
-
-    /// 更新分片大小（预知大小时调用）
     fn update_total_bytes(&self, size: usize) {
         self.total_bytes.fetch_add(size, Ordering::Relaxed);
     }
-
-    /// 记录下载数据块
     async fn record_chunk(&self, size: usize) {
-        self.downloaded_bytes.fetch_add(size, Ordering::Relaxed);
-        // 保留速度采样逻辑
+        let now = Instant::now();
         let mut samples = self.speed_samples.lock().await;
-        samples.push_back((Instant::now(), size));
-        if samples.len() > 10 {
+        samples.push_back((now, size));
+        if samples.len() > 3200 {
             samples.pop_front();
         }
+        drop(samples); // 提前释放锁，减少竞争
+        self.downloaded_bytes.fetch_add(size, Ordering::Relaxed);
     }
 
-    /// 获取平滑后的速度及单位
-    async fn get_speed(&self) -> (f64, &'static str) {
-        let mut samples = self.speed_samples.lock().await;
-        // 清除超过10秒的旧数据
+    /// 获取窗口平均速度（如过去1秒）
+    async fn get_windowed_speed(&self) -> (f64, &'static str) {
         let now = Instant::now();
-        while samples
-            .front()
-            .map(|(t, _)| now - *t > Duration::from_secs(10))
-            .unwrap_or(false)
-        {
-            samples.pop_front();
-        }
-
-        if samples.len() < 2 {
+        let samples = self.speed_samples.lock().await;
+        let cutoff = now - Duration::from_secs(1);
+        let relevant: Vec<_> = samples.iter().filter(|(t, _)| *t >= cutoff).collect();
+        if relevant.is_empty() {
             return (0.0, "KB/s");
         }
-
-        let total_bytes: usize = samples.iter().map(|(_, bytes)| bytes).sum();
-        let duration = samples.back().unwrap().0 - samples.front().unwrap().0;
-        let seconds = duration.as_secs_f64().max(0.1);
-
-        let speed_kb = (total_bytes as f64 / seconds) / 1024.0;
-
-        // 智能单位转换
+        let total_bytes: usize = relevant.iter().map(|&(_, size)| size).sum();
+        let duration = now.duration_since(cutoff).as_secs_f64().max(0.5); // 避免除零
+        let bytes_per_second = total_bytes as f64 / duration;
+        let speed_kb = bytes_per_second / 1024.0;
         if speed_kb >= 1024.0 {
             (speed_kb / 1024.0, "MB/s")
         } else {
@@ -337,7 +321,7 @@ pub async fn download_m3u8(
 
         tokio::spawn(async move {
             // 创建定时器并消耗初始触发
-            let mut interval = tokio::time::interval(Duration::from_millis(800));
+            let mut interval = tokio::time::interval(Duration::from_millis(200));
             interval.tick().await;
             let mut last_send_time = Instant::now(); // 新增时间记录
             let mut needs_reset = false;
@@ -361,7 +345,7 @@ pub async fn download_m3u8(
                 interval.tick().await;
                 // 检查实际间隔（防止处理逻辑耗时影响）
                 let now = Instant::now();
-                if now.duration_since(last_send_time) < Duration::from_millis(800) {
+                if now.duration_since(last_send_time) < Duration::from_millis(200) {
                     continue;
                 }
                 last_send_time = now;
@@ -370,7 +354,7 @@ pub async fn download_m3u8(
                 let is_cancelled = control.is_cancelled();
                 let is_paused = control.is_paused();
                 // 获取速度
-                let (speed_val, speed_unit) = metrics.get_speed().await;
+                let (speed_val, speed_unit) = metrics.get_windowed_speed().await;
                 // 获取进度
                 let progress = metrics.get_progress().await;
 
@@ -390,7 +374,7 @@ pub async fn download_m3u8(
                 let current_data = serde_json::json!({
                     "id": id,
                     "progress": progress.round() as u32,
-                    "speed": format!("{:.2} {}", speed_val, speed_unit),
+                        "speed": format!("{:.2} {}", speed_val, speed_unit),
                     "status": status_info.0,
                     "message": status_info.1,
                     "isMerge": is_merge,
