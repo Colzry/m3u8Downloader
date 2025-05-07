@@ -6,6 +6,7 @@ import { open } from '@tauri-apps/plugin-dialog';
 import {Store} from "@tauri-apps/plugin-store";
 import {invoke} from "@tauri-apps/api/core";
 
+const version = import.meta.env.VITE_APP_VERSION;
 const settingStore = useSettingStore()
 
 const selectFolder = async () => {
@@ -50,7 +51,7 @@ watch(
 
         <div class="set-item">
           <div class="set-label">
-            <div>删除已下载项同时删除原文件</div>
+            <div>删除已下载同时删除原文件</div>
           </div>
           <div class="set-value">
             <n-switch size="small" v-model:value="settingStore.isDeleteDownloadFile" />
@@ -104,6 +105,21 @@ watch(
         </div>
       </div>
     </div>
+
+    <div class="other-setting set-wrap">
+      <div class="o-title title">其他</div>
+      <div class="set-items-wrap">
+        <div class="set-item">
+          <div class="set-label">当前版本</div>
+          <div class="set-value">{{ version }}</div>
+        </div>
+        <div class="set-item">
+          <div class="set-label">发布地址</div>
+          <div class="set-value"><a href="https://github.com/Colzry/m3u8Downloader">https://github.com/Colzry/m3u8Downloader</a></div>
+        </div>
+      </div>
+    </div>
+
   </main-wrapper>
 
 
