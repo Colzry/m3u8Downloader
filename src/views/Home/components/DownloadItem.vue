@@ -114,12 +114,15 @@ const deleteTask = async () => {
         <div class="progress-value">{{ progress }}%</div>
         <div class="speed tail" v-if="status === 1">下载暂停</div>
         <div class="speed tail" v-else-if="status === 2">{{ speed }}</div>
-        <div class="speed tail" v-else-if="status === 3">正在合并</div>
         <div class="speed tail" v-else-if="status === 4">等待下载</div>
-        <div class="status tail" v-else>{{isMerge ? '正在合并' : '下载暂停'}}</div>
       </div>
-      <div class="url-warp" v-else>
-        {{url}}
+      <div class="completed-warp" v-else>
+        <div class="url-warp">{{url}}</div>
+        <div class="merge-status tail" v-if="status === 3">
+          <span>正在合并</span>
+          <span class="slash-container">.</span>
+          <span class="slash-rotating">/</span>
+        </div>
       </div>
     </div>
 
@@ -176,13 +179,49 @@ const deleteTask = async () => {
         white-space: nowrap;
       }
     }
-    .url-warp {
-      font-size: 0.8rem;
-      line-height: 1rem;
-      white-space: nowrap; /* 强制文本不换行 */
-      overflow: hidden; /* 超出部分隐藏 */
-      text-overflow: ellipsis; /* 超出部分用省略号显示 */
+    .completed-warp {
+      width: 100%;
+      display: flex;
+      align-items: center;
+      justify-items: center;
+      justify-content: space-between;
+      .url-warp {
+        font-size: 0.8rem;
+        line-height: 1rem;
+        white-space: nowrap; /* 强制文本不换行 */
+        overflow: hidden; /* 超出部分隐藏 */
+        text-overflow: ellipsis; /* 超出部分用省略号显示 */
+      }
+      .merge-status {
+        font-family: sans-serif;
+        display: inline-flex;
+        align-items: center;
+        gap: 2px;
+        font-size: 0.8rem;
+        margin-right: 5px;
+        .slash-container {
+          display: inline-block;
+          width: 10px;
+        }
+        .slash-rotating {
+          display: inline-block;
+          animation: rotateSlash 1s infinite linear;
+        }
+        @keyframes rotateSlash {
+          0% {
+            transform: rotate(0deg);
+          }
+          100% {
+            transform: rotate(360deg);
+          }
+        }
+      }
+      .tail {
+        min-width: 70px;
+        white-space: nowrap;
+      }
     }
+
   }
 }
 </style>
