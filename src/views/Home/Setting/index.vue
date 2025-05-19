@@ -115,7 +115,7 @@ watch(
         </div>
         <div class="set-item">
           <div class="set-label">发布地址</div>
-          <div class="set-value"><a href="https://github.com/Colzry/m3u8Downloader">https://github.com/Colzry/m3u8Downloader</a></div>
+          <div class="set-value">https://github.com/Colzry/m3u8Downloader</div>
         </div>
       </div>
     </div>
