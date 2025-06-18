@@ -4,11 +4,13 @@ import HButton from "@/views/Home/components/HButton.vue";
 import MainWrapper from "@/views/Home/components/MainWrapper.vue";
 import DownloadItem from "@/views/Home/components/DownloadItem.vue";
 import {validateM3u8Url} from "@/utils/m3u8Validator.js";
-import {useMessage} from "naive-ui";
+import {useMessage, useNotification } from "naive-ui";
 import {openFolder} from "@/utils/fs.js";
+import {debounce} from 'lodash';
 import {ref} from "vue";
 
 const message = useMessage();
+const notification = useNotification()
 const showModal = ref(false);
 const formRef = ref(null);
 
@@ -131,7 +133,8 @@ const cancelAddDownloadHandle = () => {
   message.success("已取消");
   showModal.value = false;
 }
-const addToListHandle = async () => {
+
+const addToListHandle = debounce(async () => {
   try {
     await formRef.value?.validate();
     const id = crypto.randomUUID();
@@ -149,22 +152,35 @@ const addToListHandle = async () => {
     showModal.value = false;
     return id; // 成功返回 ID
   } catch (errors) {
-    console.log(errors);
     return null; // 验证失败返回 null
   }
-}
-const clickNewDownload = () => {
+}, 1000)
+
+const clickNewDownload = debounce(()=> {
   showModal.value = true
   Object.keys(formValue).forEach(key => {
     delete formValue[key];
   });
-}
-const nowDownloadHandle = async () => {
+}, 1000)
+
+const d_loading = ref(false);
+const nowDownloadHandle = debounce(async () => {
+  d_loading.value = true
   const id = await addToListHandle()
   if (id) {
-    await downloadingStore.startDownload(id)
+    downloadingStore.startDownload(id).catch(
+        _err => {
+          notification.error({
+            content: '下载失败',
+            meta: downloadingStore.getItemById(id).title,
+            duration: 2500,
+            keepAliveOnHover: true
+          })
+        }
+    )
   }
-}
+  d_loading.value = false
+}, 1000)
 
 </script>
 
@@ -283,7 +299,7 @@ const nowDownloadHandle = async () => {
     <template #action>
       <n-button size="small" ghost @click="cancelAddDownloadHandle">取消</n-button>
       <n-button size="small" type="info" ghost @click="addToListHandle">加入列表</n-button>
-      <n-button size="small" type="primary" @click="nowDownloadHandle">立即下载</n-button>
+      <n-button :loading="d_loading" size="small" type="primary" @click="nowDownloadHandle">立即下载</n-button>
     </template>
   </n-modal>
 </template>
