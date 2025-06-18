@@ -204,7 +204,6 @@ export const useDownloadingStore = defineStore('Downloading', {
         }),
         listen('merge_video', (event) => {
           const data = event.payload;
-          console.log("merge ---> ", data)
           if (data.id === taskId && data.isMerge) {
             // 迁移数据示例
             const item = this.items.find(i => i.id === taskId);
