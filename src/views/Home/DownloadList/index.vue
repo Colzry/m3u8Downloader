@@ -6,7 +6,7 @@ import DownloadItem from "@/views/Home/components/DownloadItem.vue";
 import {validateM3u8Url} from "@/utils/m3u8Validator.js";
 import {useMessage, useNotification } from "naive-ui";
 import {openFolder} from "@/utils/fs.js";
-import {debounce} from 'lodash';
+import {throttle} from 'lodash';
 import {ref} from "vue";
 
 const message = useMessage();
@@ -134,7 +134,7 @@ const cancelAddDownloadHandle = () => {
   showModal.value = false;
 }
 
-const addToListHandle = debounce(async () => {
+const addToListHandle = throttle(async () => {
   try {
     await formRef.value?.validate();
     const id = crypto.randomUUID();
@@ -156,15 +156,15 @@ const addToListHandle = debounce(async () => {
   }
 }, 1000)
 
-const clickNewDownload = debounce(()=> {
+const clickNewDownload = ()=> {
   showModal.value = true
   Object.keys(formValue).forEach(key => {
     delete formValue[key];
   });
-}, 1000)
+}
 
 const d_loading = ref(false);
-const nowDownloadHandle = debounce(async () => {
+const nowDownloadHandle = async () => {
   d_loading.value = true
   const id = await addToListHandle()
   if (id) {
@@ -180,7 +180,7 @@ const nowDownloadHandle = debounce(async () => {
     )
   }
   d_loading.value = false
-}, 1000)
+}
 
 </script>
 
