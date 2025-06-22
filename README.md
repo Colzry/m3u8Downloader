@@ -2,9 +2,11 @@
 
 ![License](https://img.shields.io/badge/license-GPL3.0-yellow)
 ![Tauri](https://img.shields.io/badge/Tauri-2-blue?logo=tauri)
-![JavaScript](https://img.shields.io/badge/-JavaScript-yellow?logo=javascript&logoColor=white)
+![Vue 3](https://img.shields.io/badge/-Vue%203-4FC08D?logo=vue.js&logoColor=white)
 ![Rust](https://img.shields.io/badge/-Rust-orange?logo=rust&logoColor=white)
-![Windows](https://img.shields.io/badge/-windows-blue?logo=windows&logoColor=white)
+![Windows](https://img.shields.io/badge/-Windows-0078D6?logo=windows&logoColor=white)
+![macOS](https://img.shields.io/badge/-macOS-000000?logo=apple&logoColor=white)
+![Linux](https://img.shields.io/badge/-Linux-FF4A49?logo=linux&logoColor=white)
 
 <br/>
 

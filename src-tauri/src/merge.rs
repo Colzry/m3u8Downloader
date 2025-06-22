@@ -1,4 +1,3 @@
-use std::os::windows::process::CommandExt;
 use anyhow::Result;
 use tauri::{AppHandle, Emitter};
 use tokio::fs::File;
@@ -47,11 +46,6 @@ pub async fn merge_files(
     // 输出文件路径
     let output_file = format!("{}/{}.mp4", output_dir, name);
 
-    // let ffmpeg_path = "ffmpeg/ffmpeg.exe";
-    // if !std::path::Path::new(ffmpeg_path).exists() {
-    //     return Err(anyhow::anyhow!("FFmpeg 可执行文件不存在: {}", ffmpeg_path));
-    // }
-
     // 构造跨平台命令
     #[cfg(target_os = "windows")]
     let ffmpeg = "bin/win/ffmpeg.exe";
@@ -62,11 +56,20 @@ pub async fn merge_files(
     #[cfg(all(target_os = "macos", target_arch = "x86_64"))]
     let ffmpeg = "bin/darwin/x64/ffmpeg";
 
-    let mut cmd = std::process::Command::new(ffmpeg);
+    // 检查 ffmpeg 是否存在
+    if !std::path::Path::new(ffmpeg).exists() {
+        return Err(anyhow::anyhow!("ffmpeg binary not found at {}", ffmpeg));
+    }
 
-    // Windows 隐藏窗口
+    // 创建 Command
     #[cfg(target_os = "windows")]
-    cmd.creation_flags(0x08000000);
+    let mut cmd = std::process::Command::new(ffmpeg);
+    #[cfg(target_os = "windows")]
+    use std::os::windows::process::CommandExt;
+    #[cfg(target_os = "windows")]
+    cmd.creation_flags(0x08000000); // 隐藏窗口
+    #[cfg(not(target_os = "windows"))]
+    let cmd = std::process::Command::new(ffmpeg);
 
     let status = tokio::process::Command::from(cmd)
         .args(&[
