@@ -54,9 +54,13 @@ pub async fn merge_files(
 
     // 构造跨平台命令
     #[cfg(target_os = "windows")]
-    let ffmpeg = "ffmpeg/ffmpeg.exe";
-    #[cfg(not(target_os = "windows"))]
-    let ffmpeg = "ffmpeg";
+    let ffmpeg = "bin/win/ffmpeg.exe";
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    let ffmpeg = "bin/linux/ffmpeg";
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    let ffmpeg = "bin/darwin/arm64/ffmpeg";
+    #[cfg(all(target_os = "macos", target_arch = "x86_64"))]
+    let ffmpeg = "bin/darwin/x64/ffmpeg";
 
     let mut cmd = std::process::Command::new(ffmpeg);
 
