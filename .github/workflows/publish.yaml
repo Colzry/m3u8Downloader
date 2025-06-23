@@ -15,13 +15,13 @@ jobs:
       matrix:
         include:
           - platform: 'macos-latest' # for Arm based macs (M1 and above).
-            args: '--target aarch64-apple-darwin'
+            args: '--target aarch64-apple-darwin --bundles app --config src-tauri/tauri.macos-aarch64.conf.json'
           - platform: 'macos-latest' # for Intel based macs.
-            args: '--target x86_64-apple-darwin'
+            args: '--target x86_64-apple-darwin --bundles app --config src-tauri/tauri.macos-x86_64.conf.json'
           - platform: 'ubuntu-22.04'
-            args: ''
+            args: '--config src-tauri/tauri.linux.conf.json'
           - platform: 'windows-latest'
-            args: ''
+            args: '--config src-tauri/tauri.windows.conf.json'
 
     runs-on: ${{ matrix.platform }}
     steps:
@@ -54,12 +54,11 @@ jobs:
         # If you don't have `beforeBuildCommand` configured you may want to build your frontend here too.
         run: yarn install # change this to npm or pnpm depending on which one you use.
 
-
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.DEPLOY_KEY }}
         with:
-          tagName: app-v__VERSION__
+          tagName: v__VERSION__
           releaseName: "v__VERSION__"
           releaseBody: "See the assets to download this version and install."
           releaseDraft: true
