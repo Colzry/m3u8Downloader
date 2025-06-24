@@ -66,7 +66,7 @@ const startTask = async () => {
 }
 
 const deleteTask = async () => {
-  if (props.isMerge) {
+  if (props.isMerge && props.status !== 3) {
     await downloadedStore.removeItem(props.id)
   } else {
     await downloadingStore.removeItem(props.id)
