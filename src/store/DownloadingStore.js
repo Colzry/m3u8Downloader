@@ -119,8 +119,8 @@ export const useDownloadingStore = defineStore('Downloading', {
     async removeItem(id) {
       const item = this.getItemById(id)
       const wasActive = item?.status === 2;
-      if (item.isCreatedTempDir && !item.isMerge) { // 创建了临时目录没有合并完成
-        await invoke("delete_download", {id})
+      if (item.isCreatedTempDir) { // 创建了临时目录
+        invoke("delete_download", {id}).catch()
       }
       this.cleanupTaskListeners(id)
       this.items = this.items.filter(i => i.id !== id);
