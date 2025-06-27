@@ -9,7 +9,7 @@ export const M3U8_VALID_CONTENT_TYPES = [
 export const validateM3u8Url = async (url, options = {}) => {
   const defaultOptions = {
     checkContent: true,
-    timeout: 15000,
+    timeout: 3000,
     ...options
   };
   
