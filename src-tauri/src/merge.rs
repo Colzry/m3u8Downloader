@@ -6,7 +6,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 // 下载的ts文件排序
 pub fn sort_ts_files(ts_files: &mut Vec<String>) {
     ts_files.sort_by(|a, b| {
-        // 提取文件名中数字部分，假设格式为 *_part_<index>.ts
+        // 提取文件名中数字部分，假设格式为 part_<index>.ts
         let extract_index = |s: &str| {
             s.rsplit('_')
                 .next() // 例如 "0.ts"
@@ -24,7 +24,7 @@ pub fn sort_ts_files(ts_files: &mut Vec<String>) {
 pub async fn merge_files(
     id: String,
     name: &str,
-    ts_files: Vec<String>,
+    mut ts_files: Vec<String>,
     temp_dir: &str,
     output_dir: &str,
     app_handle: AppHandle,
@@ -32,6 +32,9 @@ pub async fn merge_files(
     // 创建 concat.txt 文件路径
     let concat_file_path = format!("{}/concat.txt", temp_dir);
     let mut concat_file = File::create(&concat_file_path).await?;
+
+    // 将下载好的TS 文件排好序，防止合并的视频播放异常
+    sort_ts_files(&mut ts_files);
 
     // 异步写入 TS 文件列表到 concat.txt
     for ts_file in ts_files {
@@ -74,11 +77,15 @@ pub async fn merge_files(
     let status = tokio::process::Command::from(cmd)
         .args(&[
             "-y", // 覆盖输出文件
-            "-f", "concat",
-            "-safe", "0",
-            "-i", &concat_file_path,
-            "-c", "copy",
-            &output_file
+            "-f",
+            "concat",
+            "-safe",
+            "0",
+            "-i",
+            &concat_file_path,
+            "-c",
+            "copy",
+            &output_file,
         ])
         .status()
         .await?;

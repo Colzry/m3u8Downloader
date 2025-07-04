@@ -1,7 +1,5 @@
 use crate::download::download_m3u8;
 use crate::download_manager::{DownloadControl, DownloadManager, DownloadTask};
-#[warn(unused_imports)]
-use crate::merge::{merge_files, sort_ts_files};
 use anyhow::Result;
 use std::fs;
 use std::sync::Arc;
@@ -49,35 +47,18 @@ pub async fn start_download(
         .await;
 
     // 开始下载 TS 文件到临时目录
-    let mut ts_files = download_m3u8(
+    download_m3u8(
         id.clone(),
         &url,
         &name,
         &temp_dir,
+        &output_dir,
         thread_count,
         control.clone(),
         app_handle.clone(),
     )
     .await
     .map_err(|e| e.to_string())?;
-
-    // 将下载好的TS 文件排好序，防止合并的视频播放异常
-    sort_ts_files(&mut ts_files);
-
-    // 合并 TS 文件为 MP4
-    merge_files(
-        id.clone(),
-        &name,
-        ts_files,
-        &temp_dir,
-        &output_dir,
-        app_handle.clone(),
-    )
-    .await
-    .map_err(|e| e.to_string())?;
-    // merge_ts_to_mp4(id.clone(), &name, ts_files, &output_dir, app_handle.clone())
-    //     .await
-    //     .map_err(|e| e.to_string())?;
 
     // 删除临时目录
     manager
@@ -134,15 +115,20 @@ pub fn get_cpu_info() -> (usize, usize) {
 /// 删除指定文件
 #[tauri::command]
 pub async fn delete_file(file_path: String) -> Result<(), String> {
-    tokio::fs::remove_file(file_path.clone()).await.map_err(|e| format!("删除{}文件失败: {}", file_path, e))?;
+    tokio::fs::remove_file(file_path.clone())
+        .await
+        .map_err(|e| format!("删除{}文件失败: {}", file_path, e))?;
     Ok(())
 }
 
-
 #[tauri::command]
-pub async fn set_minimize_on_close(minimize_on_close: bool, app_handle: AppHandle,) -> Result<(), String> {
-    let store =  app_handle.store("settings.dat").unwrap();
-    let old_minimize_on_close: bool = store.get("minimize_on_close")
+pub async fn set_minimize_on_close(
+    minimize_on_close: bool,
+    app_handle: AppHandle,
+) -> Result<(), String> {
+    let store = app_handle.store("settings.dat").unwrap();
+    let old_minimize_on_close: bool = store
+        .get("minimize_on_close")
         .and_then(|v| v.as_bool())
         .unwrap_or(true); // 默认值 true
     if minimize_on_close != old_minimize_on_close {
