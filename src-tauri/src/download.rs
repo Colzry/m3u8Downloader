@@ -7,6 +7,7 @@
 //! - 暂停/恢复控制
 
 use crate::download_manager::DownloadControl;
+use crate::merge::merge_files;
 use anyhow::Result;
 use openssl::symm::{decrypt, Cipher};
 use reqwest::Client;
@@ -14,7 +15,7 @@ use std::collections::VecDeque;
 use std::time::Duration;
 use std::{
     sync::{
-        atomic::{AtomicUsize, AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicUsize, Ordering},
         Arc,
     },
     time::Instant,
@@ -220,13 +221,14 @@ pub async fn download_m3u8(
     id: String,                    // 下载任务唯一标识
     url: &str,                     // M3U8文件URL
     name: &str,                    // 输出文件名
-    output_dir: &str,              // 输出目录
+    temp_dir: &str,                // ts文件下载目录
+    output_dir: &str,              // MP4视频输出目录
     concurrency: usize,            // 并发线程数
     control: Arc<DownloadControl>, // 下载控制对象
     app_handle: AppHandle,         // Tauri应用句柄
-) -> Result<Vec<String>> {
+) -> Result<()> {
     // 创建输出目录
-    fs::create_dir_all(output_dir).await?;
+    fs::create_dir_all(temp_dir).await?;
     let client = Client::new();
     let pause_notify = control.get_notify();
 
@@ -273,7 +275,7 @@ pub async fn download_m3u8(
             } else {
                 format!("{}/{}", url.rsplit_once('/').unwrap().0, line)
             };
-            let filename = format!("{}/{}_part_{}.ts", output_dir, name, index);
+            let filename = format!("{}/part_{}.ts", temp_dir, index);
             tasks.push((ts_url, filename, current_encryption.clone()));
         }
     }
@@ -298,13 +300,19 @@ pub async fn download_m3u8(
         pre_handles.push(tokio::spawn(async move {
             let _ = permit.acquire().await; // 忽略Semaphore错误
 
-            let _ = client.head(&ts_url).send().await.map(|resp| {
-                resp.headers().get("Content-Length")
-                    .and_then(|hv| hv.to_str().ok())
-                    .and_then(|s| s.parse::<usize>().ok())
-                    .map(|size| metrics.update_total_bytes(size))
-                    .unwrap_or_else(|| metrics.mark_total_bytes_invalid());
-            }).map_err(|_| metrics.mark_total_bytes_invalid());
+            let _ = client
+                .head(&ts_url)
+                .send()
+                .await
+                .map(|resp| {
+                    resp.headers()
+                        .get("Content-Length")
+                        .and_then(|hv| hv.to_str().ok())
+                        .and_then(|s| s.parse::<usize>().ok())
+                        .map(|size| metrics.update_total_bytes(size))
+                        .unwrap_or_else(|| metrics.mark_total_bytes_invalid());
+                })
+                .map_err(|_| metrics.mark_total_bytes_invalid());
         }));
     }
     // 等待所有预请求完成
@@ -442,8 +450,22 @@ pub async fn download_m3u8(
         handle.await??;
     }
 
+    // 合并 TS 文件为 MP4
+    merge_files(
+        id.clone(),
+        &name,
+        Arc::try_unwrap(ts_files).unwrap().into_inner(),
+        &temp_dir,
+        &output_dir,
+        app_handle.clone(),
+    )
+    .await?;
+    // merge_ts_to_mp4(id.clone(), &name, ts_files, &output_dir, app_handle.clone())
+    //     .await
+    //     .map_err(|e| e.to_string())?;
+
     // 等待速度监控任务退出
     speed_handle.await?;
 
-    Ok(Arc::try_unwrap(ts_files).unwrap().into_inner())
+    Ok(())
 }
