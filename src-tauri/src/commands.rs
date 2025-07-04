@@ -19,6 +19,7 @@ pub async fn start_download(
 ) -> Result<(), String> {
     let temp_dir = format!("{}/temp_{}_{}", output_dir, name, id);
 
+    log::info!("ID: {}, URL: {}, Name: {} - 开始下载", id, url, name);
     println!("ID: {}, URL: {}, Name: {}", id, url, name);
 
     // 创建临时目录
@@ -33,7 +34,7 @@ pub async fn start_download(
             }),
         )
         .ok();
-
+    log::info!("{} 创建临时目录: {}", id, &temp_dir);
     let control = Arc::new(DownloadControl::default());
     // 将任务信息添加到全局管理器
     manager
@@ -65,6 +66,8 @@ pub async fn start_download(
         .delete_task(&id)
         .await
         .expect("临时下载目录删除失败");
+
+    log::info!("{} 下载完成，删除临时目录: {}", id, &temp_dir);
 
     Ok(())
 }
