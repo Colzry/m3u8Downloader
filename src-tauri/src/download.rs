@@ -450,6 +450,7 @@ pub async fn download_m3u8(
         handle.await??;
     }
 
+    log::info!("{} 开始合并TS文件", id);
     // 合并 TS 文件为 MP4
     merge_files(
         id.clone(),
@@ -460,6 +461,7 @@ pub async fn download_m3u8(
         app_handle.clone(),
     )
     .await?;
+    log::info!("{} 合并完成", id);
     // merge_ts_to_mp4(id.clone(), &name, ts_files, &output_dir, app_handle.clone())
     //     .await
     //     .map_err(|e| e.to_string())?;

@@ -10,6 +10,7 @@ pub mod commands;
 mod download;
 mod download_manager;
 mod merge;
+mod logger;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -21,6 +22,10 @@ pub fn run() {
 
     // 设置 Tauri 的异步运行时
     async_runtime::set(runtime.handle().clone());
+
+    if let Err(e) = logger::setup_logging() {
+        eprintln!("⚠️ 初始化日志失败：{}", e);
+    }
 
     // 启动 Tauri 应用程序
     tauri::Builder::default()
