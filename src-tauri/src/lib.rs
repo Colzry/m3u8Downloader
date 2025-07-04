@@ -1,8 +1,11 @@
-use tauri::{async_runtime, Emitter, Manager, WindowEvent};
-use tauri::tray::{MouseButton, TrayIconEvent};
-use tauri_plugin_store::StoreExt;
-use crate::commands::{delete_download, pause_download, resume_download, start_download, get_cpu_info, delete_file, set_minimize_on_close};
+use crate::commands::{
+    delete_download, delete_file, get_cpu_info, pause_download, resume_download,
+    set_minimize_on_close, start_download,
+};
 use crate::download_manager::DownloadManager;
+use tauri::tray::{MouseButton, TrayIconEvent};
+use tauri::{async_runtime, Emitter, Manager, WindowEvent};
+use tauri_plugin_store::StoreExt;
 pub mod commands;
 mod download;
 mod download_manager;
@@ -29,15 +32,17 @@ pub fn run() {
         .setup(|app| {
             enable_tray(app)?;
             // 初始化 store 并读取配置
-            let store =  app.store("settings.dat")?;
+            let store = app.store("settings.dat")?;
             // 监听窗口关闭事件
             let main_window = app.get_webview_window("main").unwrap();
 
             main_window.clone().on_window_event(move |event| {
                 if let WindowEvent::CloseRequested { api, .. } = event {
-                    if store.get("minimize_on_close")
+                    if store
+                        .get("minimize_on_close")
                         .and_then(|v| v.as_bool())
-                        .unwrap_or(true) {
+                        .unwrap_or(true)
+                    {
                         api.prevent_close(); // 阻止默认关闭行为
                         main_window.hide().unwrap(); // 隐藏窗口
                     }
@@ -58,8 +63,6 @@ pub fn run() {
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
-
-
 
 fn enable_tray(app: &mut tauri::App) -> tauri::Result<()> {
     use tauri::{
