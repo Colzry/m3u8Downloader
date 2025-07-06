@@ -27,8 +27,6 @@ use tokio::{
     io::AsyncWriteExt,
     sync::{Mutex, Semaphore},
 };
-use tokio::time::sleep;
-
 /// 下载指标跟踪结构体（增强版）
 #[derive(Clone)]
 struct DownloadMetrics {
@@ -154,6 +152,14 @@ fn parse_ext_x_key(line: &str) -> Result<(String, String, Option<String>)> {
     Ok((method, uri, iv))
 }
 
+
+/// 下载结果状态枚举
+#[derive(Debug, Clone)]
+pub enum DownloadResult {
+    Success(String),   // 成功并且是有效 ts 文件
+    Skipped(String),   // 下载成功，但内容无效或空，未写入磁盘
+}
+
 /// 下载单个TS文件（支持加密内容解密）
 /// 关键改进点：
 /// 1. 实时更新全局下载字节计数器
@@ -166,7 +172,7 @@ async fn download_file(
     encryption: Option<EncryptionInfo>,
     pause_notify: Arc<Notify>,     // 暂停通知通道
     metrics: Arc<DownloadMetrics>, // 新增metrics参数
-) -> Result<()> {
+) -> Result<DownloadResult> {
     let mut response = client.get(url).send().await?;
     let mut buffer = Vec::new();
 
@@ -175,7 +181,7 @@ async fn download_file(
         if control.is_cancelled() {
             // 主动清理已下载的部分文件
             fs::remove_file(output_path).await.ok();
-            return Ok(());
+            return Ok(DownloadResult::Skipped(url.to_string()));
         }
 
         // 处理暂停状态（支持取消中断）
@@ -186,7 +192,7 @@ async fn download_file(
                 _ = tokio::time::sleep(Duration::from_millis(100)) => {
                     if control.is_cancelled() {
                         fs::remove_file(output_path).await.ok();
-                        return Ok(());
+                        return Ok(DownloadResult::Skipped(url.to_string()));
                     }
                 }
             }
@@ -196,6 +202,22 @@ async fn download_file(
         let chunk_len = chunk.len();
         buffer.extend_from_slice(&chunk);
         metrics.record_chunk(chunk_len).await; // 替换原有的计数器更新
+    }
+
+    // 判断是否为空
+    if buffer.is_empty() {
+        log::warn!("⚠️ [{}] 返回空数据，标记为 Skipped", url);
+        return Ok(DownloadResult::Skipped(url.to_string()));
+    }
+    // 检查是否 HTML/XML 内容
+    let content_type = response.headers()
+        .get("Content-Type")
+        .and_then(|ct| ct.to_str().ok())
+        .unwrap_or("");
+
+    if content_type.starts_with("text/html") || content_type.contains("xml") {
+        log::warn!("⚠️ [{}] 是 HTML 内容，标记为 Skipped", url);
+        return Ok(DownloadResult::Skipped(url.to_string()));
     }
 
     // AES-128解密处理
@@ -210,7 +232,7 @@ async fn download_file(
     // 写入解密后的文件
     let mut file = fs::File::create(output_path).await?;
     file.write_all(&data).await?;
-    Ok(())
+    Ok(DownloadResult::Success(output_path.to_string()))
 }
 
 /// M3U8下载主函数
@@ -430,7 +452,8 @@ pub async fn download_m3u8(
                 if control.is_cancelled() {
                     return Ok::<(), anyhow::Error>(());
                 }
-                match download_file(
+                // 调用真正的下载函数
+                let result = download_file(
                     &client,
                     &ts_url,
                     &filename,
@@ -438,22 +461,23 @@ pub async fn download_m3u8(
                     encryption.clone(),
                     pause_notify.clone(),
                     metrics.clone(),
-                )
-                    .await
-                {
-                    Ok(_) => {
+                ).await;
+
+                match result {
+                    Ok(DownloadResult::Success(f)) => {
+                        log::info!("✅ 分片 [{}] 下载成功（尝试次数 {}）", f, attempt);
                         metrics.completed_chunks.fetch_add(1, Ordering::Relaxed);
-                        ts_files.lock().await.push(filename.clone());
-                        log::debug!("✅ 分片 [{}] 下载成功（尝试次数 {}）", filename, attempt);
+                        ts_files.lock().await.push(f); // 只推送真正成功的
+                        return Ok(());
+                    }
+                    Ok(DownloadResult::Skipped(f)) => {
+                        log::warn!("🗑️ 分片 [{}] 已被跳过，不再重试", f);
                         return Ok(());
                     }
                     Err(e) => {
-                        log::warn!(
-                        "⚠️ 分片 [{}] 第 {} 次下载失败，原因：{}",
-                        filename, attempt, e
-                    );
+                        log::error!("⚠️ 分片 [{}] 第 {} 次下载失败，原因：{}", filename, attempt, e);
                         if attempt < MAX_RETRIES {
-                            sleep(Duration::from_secs((attempt * 2) as u64)).await;
+                            tokio::time::sleep(Duration::from_secs((attempt * 2) as u64)).await;
                         } else {
                             log::error!("❌ 分片 [{}] 所有重试失败: {:?}", filename, e);
                         }
