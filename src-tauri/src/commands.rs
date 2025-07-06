@@ -67,7 +67,7 @@ pub async fn start_download(
         .await
         .expect("临时下载目录删除失败");
 
-    log::info!("{} 下载完成，删除临时目录: {}", id, &temp_dir);
+    log::info!("{} 下载完成", id);
 
     Ok(())
 }

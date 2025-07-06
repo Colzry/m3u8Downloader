@@ -1,3 +1,5 @@
+use std::ffi::OsStr;
+use std::fs;
 use fern::Dispatch;
 use log::LevelFilter;
 use chrono::Local;
@@ -16,8 +18,44 @@ pub fn get_install_dir() -> Result<PathBuf, String> {
     Ok(install_dir)
 }
 
+/// 从安装目录查找是否含有标记日志级别的 flag 文件（无视大小写、后缀）
+fn detect_log_level_from_files(install_dir: &PathBuf) -> LevelFilter {
+    // 按照优先级排列的关键字列表，越靠前越高优先级
+    const LEVEL_MAP: &[(&str, LevelFilter)] = &[
+        ("off", LevelFilter::Off),
+        ("error", LevelFilter::Error),
+        ("warn", LevelFilter::Warn),
+        ("info", LevelFilter::Info),
+        ("debug", LevelFilter::Debug),
+        ("trace", LevelFilter::Trace),
+    ];
+    // 收集当前目录下所有文件名（不包括子目录）
+    let entries = match fs::read_dir(install_dir) {
+        Ok(entries) => entries,
+        Err(_) => return LevelFilter::Info,
+    };
+    for entry in entries.filter_map(|e| e.ok()) {
+        let path = entry.path();
+        if !path.is_file() {
+            continue;
+        }
+        let filename = match path.file_stem().and_then(OsStr::to_str) {
+            Some(name) => name.to_lowercase(),
+            None => continue,
+        };
+        for (keyword, level) in LEVEL_MAP {
+            if filename == *keyword {
+                return *level;
+            }
+        }
+    }
+    LevelFilter::Info // 默认级别
+}
+
 /// 初始化带有日志滚动的 logging 系统
 pub fn setup_logging() -> Result<(), String> {
+    let install_dir = get_install_dir()?;
+
     // 创建 logs 文件夹（如果不存在）
     let log_dir = rotate::get_log_dir_path();
     if !log_dir.exists() {
@@ -38,6 +76,9 @@ pub fn setup_logging() -> Result<(), String> {
         .open(log_file_path)
         .map_err(|e| e.to_string())?;
 
+    // 读取配置文件获取当前日志等级
+    let level = detect_log_level_from_files(&install_dir);
+
     Dispatch::new()
         .format(move |out, message, record| {
             out.finish(format_args!(
@@ -47,13 +88,14 @@ pub fn setup_logging() -> Result<(), String> {
                 message
             ))
         })
-        .level(LevelFilter::Info)
+        .level(level)
         .chain(std::io::stdout())
         .chain(log_file)
         .apply()
         .map_err(|e| e.to_string())?;
 
     log::info!("✅ 日志模块加载成功");
+    log::info!("ℹ️ 当前日志级别为: {:?}", level);
 
     Ok(())
 }

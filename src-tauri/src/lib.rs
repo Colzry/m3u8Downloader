@@ -63,7 +63,7 @@ pub fn run() {
             delete_download,
             get_cpu_info,
             delete_file,
-            set_minimize_on_close
+            set_minimize_on_close,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

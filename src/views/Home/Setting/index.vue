@@ -3,7 +3,6 @@ import PageHeader from "@/views/Home/components/PageHeader.vue";
 import MainWrapper from "@/views/Home/components/MainWrapper.vue";
 import {useSettingStore} from "@/store/SettingStore.js";
 import { open } from '@tauri-apps/plugin-dialog';
-import {Store} from "@tauri-apps/plugin-store";
 import {invoke} from "@tauri-apps/api/core";
 
 const version = import.meta.env.VITE_APP_VERSION;
