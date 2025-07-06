@@ -27,6 +27,7 @@ use tokio::{
     io::AsyncWriteExt,
     sync::{Mutex, Semaphore},
 };
+use tokio::time::sleep;
 
 /// 下载指标跟踪结构体（增强版）
 #[derive(Clone)]
@@ -424,24 +425,43 @@ pub async fn download_m3u8(
             // 获取并发许可
             let _permit = semaphore.acquire().await?;
 
-            // 带重试的下载逻辑
-            let result = download_file(
-                &client,
-                &ts_url,
-                &filename,
-                &control,
-                encryption,
-                pause_notify.clone(),
-                metrics.clone(),
-            )
-            .await;
-
-            // 成功时更新完成计数
-            if result.is_ok() {
-                metrics.completed_chunks.fetch_add(1, Ordering::Relaxed);
-                ts_files.lock().await.push(filename);
+            const MAX_RETRIES: usize = 5;
+            for attempt in 1..=MAX_RETRIES {
+                if control.is_cancelled() {
+                    return Ok::<(), anyhow::Error>(());
+                }
+                match download_file(
+                    &client,
+                    &ts_url,
+                    &filename,
+                    &control,
+                    encryption.clone(),
+                    pause_notify.clone(),
+                    metrics.clone(),
+                )
+                    .await
+                {
+                    Ok(_) => {
+                        metrics.completed_chunks.fetch_add(1, Ordering::Relaxed);
+                        ts_files.lock().await.push(filename.clone());
+                        log::debug!("✅ 分片 [{}] 下载成功（尝试次数 {}）", filename, attempt);
+                        return Ok(());
+                    }
+                    Err(e) => {
+                        log::warn!(
+                        "⚠️ 分片 [{}] 第 {} 次下载失败，原因：{}",
+                        filename, attempt, e
+                    );
+                        if attempt < MAX_RETRIES {
+                            sleep(Duration::from_secs((attempt * 2) as u64)).await;
+                        } else {
+                            log::error!("❌ 分片 [{}] 所有重试失败: {:?}", filename, e);
+                        }
+                    }
+                }
             }
-            result
+            // 返回 Err 表示该 task 最终失败
+            Err(anyhow::anyhow!("分片 [{}] 所有尝试均失败", filename))
         }));
     }
 
@@ -450,7 +470,6 @@ pub async fn download_m3u8(
         handle.await??;
     }
 
-    log::info!("{} 开始合并TS文件", id);
     // 合并 TS 文件为 MP4
     merge_files(
         id.clone(),
@@ -461,7 +480,6 @@ pub async fn download_m3u8(
         app_handle.clone(),
     )
     .await?;
-    log::info!("{} 合并完成", id);
     // merge_ts_to_mp4(id.clone(), &name, ts_files, &output_dir, app_handle.clone())
     //     .await
     //     .map_err(|e| e.to_string())?;

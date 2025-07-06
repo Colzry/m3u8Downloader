@@ -169,11 +169,11 @@ const nowDownloadHandle = async () => {
   const id = await addToListHandle()
   if (id) {
     downloadingStore.startDownload(id).catch(
-        _err => {
+        err => {
           notification.error({
-            content: '下载失败',
-            meta: downloadingStore.getItemById(id).title,
-            duration: 2500,
+            content: downloadingStore.getItemById(id).title + '下载失败',
+            meta: err,
+            duration: 5000,
             keepAliveOnHover: true
           })
         }

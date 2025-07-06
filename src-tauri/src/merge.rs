@@ -4,19 +4,16 @@ use tokio::fs::File;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 // 下载的ts文件排序
-pub fn sort_ts_files(ts_files: &mut Vec<String>) {
+fn sort_ts_files(ts_files: &mut Vec<String>) {
     ts_files.sort_by(|a, b| {
-        // 提取文件名中数字部分，假设格式为 part_<index>.ts
         let extract_index = |s: &str| {
             s.rsplit('_')
-                .next() // 例如 "0.ts"
+                .next()
                 .and_then(|part| part.strip_suffix(".ts"))
                 .and_then(|num| num.parse::<usize>().ok())
                 .unwrap_or(0)
         };
-        let idx_a = extract_index(a);
-        let idx_b = extract_index(b);
-        idx_a.cmp(&idx_b)
+        extract_index(a).cmp(&extract_index(b))
     });
 }
 
@@ -29,6 +26,7 @@ pub async fn merge_files(
     output_dir: &str,
     app_handle: AppHandle,
 ) -> Result<()> {
+    log::info!("{} 开始合并TS文件", id);
     // 创建 concat.txt 文件路径
     let concat_file_path = format!("{}/concat.txt", temp_dir);
     let mut concat_file = File::create(&concat_file_path).await?;
@@ -103,6 +101,7 @@ pub async fn merge_files(
                 }),
             )
             .ok();
+        log::error!("{} 视频合并失败", id);
         return Err(anyhow::anyhow!("FFmpeg merge failed"));
     }
 
@@ -119,7 +118,7 @@ pub async fn merge_files(
             }),
         )
         .ok();
-
+    log::info!("{} 合并完成", id);
     Ok(())
 }
 
