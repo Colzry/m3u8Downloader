@@ -465,7 +465,7 @@ pub async fn download_m3u8(
 
                 match result {
                     Ok(DownloadResult::Success(f)) => {
-                        log::info!("✅ 分片 [{}] 下载成功（尝试次数 {}）", f, attempt);
+                        log::debug!("✅ 分片 [{}] 下载成功（尝试次数 {}）", f, attempt);
                         metrics.completed_chunks.fetch_add(1, Ordering::Relaxed);
                         ts_files.lock().await.push(f); // 只推送真正成功的
                         return Ok(());
