@@ -82,7 +82,7 @@ const deleteTask = async () => {
     </div>
     <div class="info-wrap">
       <div class="item-top">
-        <div class="title">{{ title }}</div>
+        <div class="title text-ellipsis">{{ title }}</div>
         <div class="operation-wrap" v-if="status === 2">
           <span class="opera-btn" @click="pauseTask">暂停</span>
         </div>
@@ -117,7 +117,7 @@ const deleteTask = async () => {
         <div class="speed tail" v-else-if="status === 4">等待下载</div>
       </div>
       <div class="completed-warp" v-else>
-        <div class="url-warp">{{url}}</div>
+        <div class="url-warp text-ellipsis">{{url}}</div>
         <div class="merge-status tail" v-if="status === 3">
           <span>正在合并</span>
           <span class="slash-container">.</span>
@@ -130,6 +130,12 @@ const deleteTask = async () => {
 </template>
 
 <style scoped lang="less">
+.text-ellipsis {
+  white-space: nowrap; /* 文字不换行 */
+  overflow: hidden; /* 隐藏超出部分 */
+  text-overflow: ellipsis; /* 超出部分显示省略号 */
+}
+
 .item-ctr {
   display: flex;
   padding: 18px 10px;
@@ -147,6 +153,9 @@ const deleteTask = async () => {
       display: flex;
       padding-bottom: 10px;
       justify-content: space-between;
+      .title {
+        width: 80%;
+      }
       .operation-wrap {
         display: flex;
         flex-direction: row;

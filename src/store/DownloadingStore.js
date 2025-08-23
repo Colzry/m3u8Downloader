@@ -125,12 +125,11 @@ export const useDownloadingStore = defineStore('Downloading', {
       this.cleanupTaskListeners(id)
       this.items = this.items.filter(i => i.id !== id);
       this.selectedItems = this.selectedItems.filter(i => i !== id);
+      this.updatePaginationTotal()
+      this.adjustCurrentPageAfterRemove()
       if (wasActive) {
         await this.tryStartNextDownloads();
       }
-      
-      this.updatePaginationTotal()
-      this.adjustCurrentPageAfterRemove()
     },
     
     // 全选

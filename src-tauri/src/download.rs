@@ -477,7 +477,7 @@ pub async fn download_m3u8(
                     Err(e) => {
                         log::error!("⚠️ 分片 [{}] 第 {} 次下载失败，原因：{}", filename, attempt, e);
                         if attempt < MAX_RETRIES {
-                            tokio::time::sleep(Duration::from_secs((attempt * 2) as u64)).await;
+                            tokio::time::sleep(Duration::from_millis((attempt * 100) as u64)).await;
                         } else {
                             log::error!("❌ 分片 [{}] 所有重试失败: {:?}", filename, e);
                         }
