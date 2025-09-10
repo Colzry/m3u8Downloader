@@ -138,17 +138,19 @@ const deleteTask = async () => {
 
 .item-ctr {
   display: flex;
-  padding: 18px 10px;
+  padding: 15px 10px;
   background-color: #faf9f8;
   border-radius: 5px;
   width: 95%;
-  height: 2.5rem;
+  height: 3rem;
   margin: 5px 0;
   .check-wrap {
     margin-right: 8px;
   }
   .info-wrap {
     width: 100%;
+    overflow: hidden;
+    box-sizing: border-box;
     .item-top {
       display: flex;
       padding-bottom: 10px;
@@ -197,9 +199,7 @@ const deleteTask = async () => {
       .url-warp {
         font-size: 0.8rem;
         line-height: 1rem;
-        white-space: nowrap; /* 强制文本不换行 */
-        overflow: hidden; /* 超出部分隐藏 */
-        text-overflow: ellipsis; /* 超出部分用省略号显示 */
+        max-width: 90%;
       }
       .merge-status {
         font-family: sans-serif;
