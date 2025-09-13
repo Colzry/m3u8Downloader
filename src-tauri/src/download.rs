@@ -401,6 +401,10 @@ pub async fn download_m3u8(
                     (_, _, true) => (3, "正在合并"),        // merge
                 };
 
+                /**
+                status 0-已取消 1-已暂停 2-下载中 3-合并中 4-等待中
+                **/
+
                 // 生成当前事件数据
                 let current_data = serde_json::json!({
                     "id": id,
@@ -480,6 +484,8 @@ pub async fn download_m3u8(
                             tokio::time::sleep(Duration::from_millis((attempt * 100) as u64)).await;
                         } else {
                             log::error!("❌ 分片 [{}] 所有重试失败: {:?}", filename, e);
+                            control.pause();
+                            control.cancel();
                         }
                     }
                 }

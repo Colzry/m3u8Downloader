@@ -8,6 +8,11 @@ const downloadedStore = useDownloadedStore()
 const settingStore = useSettingStore()
 
 export const useDownloadingStore = defineStore('Downloading', {
+  
+  /**
+   status 0-已取消 1-已暂停 2-下载中 3-合并中 4-等待中
+   **/
+  
   state: () => ({
     items: [], // 下载项列表
     selectedItems: [], // 选中的下载项ID列表
@@ -202,6 +207,9 @@ export const useDownloadingStore = defineStore('Downloading', {
           }
         }),
         listen('merge_video', (event) => {
+          // 开始合并，触发队列检查，继续下载下一个
+          this.tryStartNextDownloads();
+          
           const data = event.payload;
           if (data.id === taskId && data.isMerge) {
             // 迁移数据示例
@@ -217,8 +225,6 @@ export const useDownloadingStore = defineStore('Downloading', {
               this.cleanupTaskListeners(taskId);
             }
           }
-          // 合并完成后触发队列检查
-          this.tryStartNextDownloads();
         })
       ]);
       
