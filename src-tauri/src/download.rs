@@ -401,9 +401,7 @@ pub async fn download_m3u8(
                     (_, _, true) => (3, "正在合并"),        // merge
                 };
 
-                /**
-                status 0-已取消 1-已暂停 2-下载中 3-合并中 4-等待中
-                **/
+                /* status 0-已取消 1-已暂停 2-下载中 3-合并中 4-等待中 */
 
                 // 生成当前事件数据
                 let current_data = serde_json::json!({
