@@ -17,7 +17,7 @@ pub async fn start_download(
     app_handle: AppHandle,
     manager: tauri::State<'_, DownloadManager>, // 注入全局管理器
 ) -> Result<(), String> {
-    let temp_dir = format!("{}/temp_{}_{}", output_dir, name, id);
+    let temp_dir = format!("{}/temp_{}", output_dir, id);
 
     log::info!("ID: {}, URL: {}, Name: {} - 开始下载", id, url, name);
     println!("ID: {}, URL: {}, Name: {}", id, url, name);
