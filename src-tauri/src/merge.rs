@@ -26,7 +26,6 @@ pub async fn merge_files(
     output_dir: &str,
     app_handle: AppHandle,
 ) -> Result<()> {
-    log::info!("{} 开始合并TS文件", id);
     // 创建 concat.txt 文件路径
     let concat_file_path = format!("{}/concat.txt", temp_dir);
     let mut concat_file = File::create(&concat_file_path).await?;

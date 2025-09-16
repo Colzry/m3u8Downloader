@@ -189,7 +189,7 @@ export const useDownloadingStore = defineStore('Downloading', {
       this.cleanupTaskListeners(taskId);
       
       // 创建事件监听器
-      const [listenCreateDir, listenProgress, listenMerge] = await Promise.all([
+      const [listenCreateDir, listenProgress, listenStartMerge, listenMerge] = await Promise.all([
         // 创建临时目录监听
         listen('create_temp_directory', (event) => {
           const data = event.payload;
@@ -212,12 +212,17 @@ export const useDownloadingStore = defineStore('Downloading', {
         
         // 开始合并监听
         listen('start_merge_video', (event) => {
+          const data = event.payload;
+          if (data.id === taskId) {
+            this.updateItem(data.id, {status : 3})
+          }
           // 开始合并，触发队列检查，继续下载下一个
           this.tryStartNextDownloads();
         }),
         
         // 合并视频监听
         listen('merge_video', (event) => {
+          console.log("merge_video ----------")
           const data = event.payload;
           if (data.id === taskId && data.isMerge) {
             // 迁移数据示例
@@ -237,7 +242,7 @@ export const useDownloadingStore = defineStore('Downloading', {
       ]);
       
       // 存储监听器
-      this.taskListeners[taskId] = [listenCreateDir, listenProgress, listenMerge];
+      this.taskListeners[taskId] = [listenCreateDir, listenProgress, listenStartMerge, listenMerge];
       
       const item = this.getItemById(taskId)
       if (item) {
