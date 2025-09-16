@@ -200,6 +200,7 @@ const deleteTask = async () => {
         font-size: 0.8rem;
         line-height: 1rem;
         max-width: 90%;
+        font-family: Arial, Helvetica, sans-serif !important;
       }
       .merge-status {
         font-family: sans-serif;
