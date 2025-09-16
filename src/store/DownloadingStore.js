@@ -190,6 +190,7 @@ export const useDownloadingStore = defineStore('Downloading', {
       
       // 创建事件监听器
       const [listenCreateDir, listenProgress, listenMerge] = await Promise.all([
+        // 创建临时目录监听
         listen('create_temp_directory', (event) => {
           const data = event.payload;
           if (data.id === taskId && data.isCreatedTempDir) {
@@ -200,16 +201,23 @@ export const useDownloadingStore = defineStore('Downloading', {
             }
           }
         }),
+        
+        // 下载进度监听
         listen('download_progress', (event) => {
           const data = event.payload;
           if (data.id === taskId) {
             this.updateItem(data.id, {...data})
           }
         }),
-        listen('merge_video', (event) => {
+        
+        // 开始合并监听
+        listen('start_merge_video', (event) => {
           // 开始合并，触发队列检查，继续下载下一个
           this.tryStartNextDownloads();
-          
+        }),
+        
+        // 合并视频监听
+        listen('merge_video', (event) => {
           const data = event.payload;
           if (data.id === taskId && data.isMerge) {
             // 迁移数据示例

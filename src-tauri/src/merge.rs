@@ -72,6 +72,20 @@ pub async fn merge_files(
     #[cfg(not(target_os = "windows"))]
     let cmd = std::process::Command::new(ffmpeg);
 
+    // 通知前端开始合并 status 10 - 开始合并  11 - 合并成功  12 - 合并失败
+    app_handle
+        .emit(
+            "start_merge_video",
+            serde_json::json!({
+                "id": id,
+                "isMerge": false,
+                "status": 10,
+                "message": "开始合并",
+            }),
+        )
+        .ok();
+    log::info!("{} 开始合并", id);
+
     let status = tokio::process::Command::from(cmd)
         .args(&[
             "-y", // 覆盖输出文件
@@ -96,12 +110,12 @@ pub async fn merge_files(
                 serde_json::json!({
                     "id": id,
                     "isMerge": false,
-                    "status": 0,
+                    "status": 12,
                     "message": "合并失败",
                 }),
             )
             .ok();
-        log::error!("{} 视频合并失败", id);
+        log::error!("{} 合并失败", id);
         return Err(anyhow::anyhow!("FFmpeg merge failed"));
     }
 
@@ -112,7 +126,7 @@ pub async fn merge_files(
             serde_json::json!({
                 "id": id,
                 "isMerge": true, // 合并完成
-                "status": 0,
+                "status": 11,
                 "message": "合并成功",
                 "file": output_file,
             }),
@@ -154,7 +168,7 @@ pub async fn merge_ts_to_mp4(
                 "merge_video",
                 serde_json::json!({
                     "id": id,
-                    "status": 0,
+                    "status": 11,
                     "isMerge": false, // 是否合并完成
                     "progress": progress.floor() as u32,  // 向下取整
                 }),
@@ -169,7 +183,7 @@ pub async fn merge_ts_to_mp4(
             serde_json::json!({
                 "id": id,
                 "isMerge": true,
-                "status": 0,
+                "status": 12,
                 "message": "合并成功",
                 "file": output_file_path,
             }),

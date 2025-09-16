@@ -61,16 +61,16 @@ const downloadingStore = useDownloadingStore();
 const settingStore = useSettingStore();
 
 // 初始化一些数据（可选）
-// if (downloadingStore.items.length < 5) {
-//   downloadingStore.addItem({
-//     id: '1',
-//     title: '西瓜-演示下载',
-//     progress: 80,
-//     isDownloaded: false,
-//     status: 1,
-//     url: 'https://sf1-cdn-tos.huoshanstatic.com/obj/media-fe/xgplayer_doc_video/hls/xgplayer-demo.m3u8',
-//   });
-// }
+if (downloadingStore.items.length < 5) {
+  downloadingStore.addItem({
+    id: '1',
+    title: '西瓜-演示下载',
+    progress: 80,
+    isDownloaded: false,
+    status: 1,
+    url: 'https://sf1-cdn-tos.huoshanstatic.com/obj/media-fe/xgplayer_doc_video/hls/xgplayer-demo.m3u8',
+  });
+}
 // 计算属性
 const items = computed(() => downloadingStore.paginatedItems);
 const isAllSelected = computed(() => downloadingStore.selectedItems.length === downloadingStore.items.length && downloadingStore.selectedItems.length !== 0);
