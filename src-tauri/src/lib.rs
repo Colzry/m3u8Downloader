@@ -89,13 +89,13 @@ fn enable_tray(app: &mut tauri::App) -> tauri::Result<()> {
         .item(&settings_i)
         .separator() // 分割线
         .item(&quit_i)
-        .build()
-        .unwrap();
+        .build()?;
 
     let _tray = TrayIconBuilder::with_id("tray")
         .show_menu_on_left_click(false)
         .icon(app.default_window_icon().unwrap().clone()) // 默认的图片
         // .icon(Image::from_bytes(include_bytes!("../icons/light@2x.png")).expect("REASON")) // 自定义的图片
+        .tooltip("m3u8下载器")
         .menu(&menu)
         .on_tray_icon_event(|tray, event| match event {
             TrayIconEvent::Click {
