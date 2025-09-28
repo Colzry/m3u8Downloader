@@ -57,6 +57,7 @@ const rules = {
 
 import { useDownloadingStore } from '@/store/DownloadingStore';
 import { useSettingStore } from "@/store/SettingStore.js";
+import {invoke} from "@tauri-apps/api/core";
 const downloadingStore = useDownloadingStore();
 const settingStore = useSettingStore();
 
@@ -170,6 +171,7 @@ const nowDownloadHandle = async () => {
   if (id) {
     downloadingStore.startDownload(id).catch(
         err => {
+          downloadingStore.pauseItem(id);
           notification.error({
             content: downloadingStore.getItemById(id).title + '下载失败',
             meta: err,
