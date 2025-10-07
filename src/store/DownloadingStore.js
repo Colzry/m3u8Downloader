@@ -222,7 +222,6 @@ export const useDownloadingStore = defineStore('Downloading', {
         
         // 合并视频监听
         listen('merge_video', (event) => {
-          console.log("merge_video ----------")
           const data = event.payload;
           if (data.id === taskId && data.isMerge) {
             // 迁移数据示例

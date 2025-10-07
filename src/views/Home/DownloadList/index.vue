@@ -121,7 +121,29 @@ const handlePauseSelected = async () => {
 const handleResumeSelected = async () => {
   if (handleSelectedNull()) return;
   for (const id of downloadingStore.selectedItems) {
-    await downloadingStore.resumeItem(id);
+    if (downloadingStore.getItemById(id).status === 0) {
+      downloadingStore.startDownload(id).catch(
+          err => {
+            downloadingStore.pauseItem(id);
+            notification.error({
+              content: downloadingStore.getItemById(id).title + '下载失败',
+              meta: err,
+              duration: 5000,
+              keepAliveOnHover: true
+            })
+          })
+    } else if(downloadingStore.getItemById(id).status === 1) {
+      downloadingStore.resumeItem(id).catch(
+          err => {
+            downloadingStore.pauseItem(id);
+            notification.error({
+              content: downloadingStore.getItemById(id).title + '下载失败',
+              meta: err,
+              duration: 5000,
+              keepAliveOnHover: true
+            })
+          })
+    }
   }
   downloadingStore.clearSelectedItems()
   message.success("开始下载")
