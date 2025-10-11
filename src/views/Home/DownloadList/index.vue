@@ -120,32 +120,14 @@ const handlePauseSelected = async () => {
 // 恢复暂停的下载
 const handleResumeSelected = async () => {
   if (handleSelectedNull()) return;
+  // 将下载项加入等待任务中
   for (const id of downloadingStore.selectedItems) {
-    if (downloadingStore.getItemById(id).status === 0) {
-      downloadingStore.startDownload(id).catch(
-          err => {
-            downloadingStore.pauseItem(id);
-            notification.error({
-              content: downloadingStore.getItemById(id).title + '下载失败',
-              meta: err,
-              duration: 5000,
-              keepAliveOnHover: true
-            })
-          })
-    } else if(downloadingStore.getItemById(id).status === 1) {
-      downloadingStore.resumeItem(id).catch(
-          err => {
-            downloadingStore.pauseItem(id);
-            notification.error({
-              content: downloadingStore.getItemById(id).title + '下载失败',
-              meta: err,
-              duration: 5000,
-              keepAliveOnHover: true
-            })
-          })
-    }
+    downloadingStore.updateItem(id, { status: 4 }); // 4 表示等待中
   }
+  // 清除选中列表
   downloadingStore.clearSelectedItems()
+  // 开始下载等待中的任务
+  await downloadingStore.tryStartNextDownloads()
   message.success("开始下载")
 }
 
