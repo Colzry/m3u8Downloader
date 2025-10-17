@@ -62,6 +62,7 @@ export const useDownloadingStore = defineStore('Downloading', {
     
     // 删除元素后调整页码
     adjustCurrentPageAfterRemove() {
+      this.updatePaginationTotal()
       if (this.paginatedItems.length === 0 && this.pagination.currentPage > 1) {
         this.setCurrentPage(this.pagination.currentPage - 1)
       }
@@ -99,12 +100,11 @@ export const useDownloadingStore = defineStore('Downloading', {
       if (item?.status === 2) {
         await invoke('pause_download', { id });
         this.updateItem(id, { status: 1 }); // 1 表示暂停
-        await this.tryStartNextDownloads(); // 触发队列检查
       }
       if (item?.status === 4) {
         this.updateItem(id, { status: 1 }); // 1 表示暂停
-        await this.tryStartNextDownloads(); // 触发队列检查
       }
+      await this.tryStartNextDownloads(); // 触发队列检查
     },
     
     async resumeItem(id) {
@@ -130,7 +130,6 @@ export const useDownloadingStore = defineStore('Downloading', {
       this.cleanupTaskListeners(id)
       this.items = this.items.filter(i => i.id !== id);
       this.selectedItems = this.selectedItems.filter(i => i !== id);
-      this.updatePaginationTotal()
       this.adjustCurrentPageAfterRemove()
       if (wasActive) {
         await this.tryStartNextDownloads();
@@ -235,6 +234,7 @@ export const useDownloadingStore = defineStore('Downloading', {
                 item => item.id !== taskId
               );
               this.cleanupTaskListeners(taskId);
+              this.adjustCurrentPageAfterRemove()
             }
           }
         })

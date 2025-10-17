@@ -52,6 +52,7 @@ export const useDownloadedStore = defineStore('Downloaded', {
     
     // 删除元素后调整页码
     adjustCurrentPageAfterRemove() {
+      this.updatePaginationTotal()
       if (this.paginatedItems.length === 0 && this.pagination.currentPage > 1) {
         this.setCurrentPage(this.pagination.currentPage - 1)
       }
@@ -76,7 +77,6 @@ export const useDownloadedStore = defineStore('Downloaded', {
         await invoke("delete_file", {filePath: item.file})
       }
       this.selectedItems = this.selectedItems.filter(i => i !== id);
-      this.updatePaginationTotal()
       this.adjustCurrentPageAfterRemove()
     },
     

@@ -111,23 +111,24 @@ const handleDeleteSelected = async () => {
 const handlePauseSelected = async () => {
   if (handleSelectedNull()) return;
   for (const id of downloadingStore.selectedItems) {
-    await downloadingStore.pauseItem(id);
+    downloadingStore.pauseItem(id).then(() => {})
   }
   downloadingStore.clearSelectedItems()
   message.success("暂停成功")
 }
 
-// 恢复暂停的下载
-const handleResumeSelected = async () => {
+// 下载选中的项
+const handleDownloadSelected = async () => {
   if (handleSelectedNull()) return;
   // 将下载项加入等待任务中
   for (const id of downloadingStore.selectedItems) {
+    if (downloadingStore.getItemById(id)?.status === 2) continue;
     downloadingStore.updateItem(id, { status: 4 }); // 4 表示等待中
   }
   // 清除选中列表
   downloadingStore.clearSelectedItems()
   // 开始下载等待中的任务
-  await downloadingStore.tryStartNextDownloads()
+  downloadingStore.tryStartNextDownloads().then(() => {})
   message.success("开始下载")
 }
 
@@ -243,7 +244,7 @@ const nowDownloadHandle = async () => {
             <n-popconfirm
                 positive-text="确认"
                 negative-text="取消"
-                @positive-click="handleResumeSelected"
+                @positive-click="handleDownloadSelected"
             >
               <template #trigger>
                 <n-button size="small" type="primary" ghost>下载</n-button>
