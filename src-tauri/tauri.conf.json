@@ -15,7 +15,8 @@
         "title": "m3u8视频下载器",
         "label": "main",
         "width": 1100,
-        "height": 700
+        "height": 700,
+        "resizable": false
       }
     ],
     "security": {

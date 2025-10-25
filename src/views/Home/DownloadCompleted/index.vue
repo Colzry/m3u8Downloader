@@ -41,6 +41,38 @@ const handleDeleteSelected = () => {
   message.success("删除成功")
 };
 
+
+import { getCurrentWindow } from '@tauri-apps/api/window';
+let unlisten = null; // 用于清理监听器
+
+// 窗口 resize 事件回调
+const handleWindowResized = async () => {
+  const appWindow = getCurrentWindow();
+  const isMaximized = await appWindow.isMaximized();
+
+  if (isMaximized) {
+    // 最大化时，增加分页大小以显示更多项
+    downloadedStore.pagination.pageSize = 12;
+  } else {
+    // 还原时，恢复默认大小
+    downloadedStore.pagination.pageSize = 5;
+  }
+
+  // 重置当前页
+  downloadedStore.pagination.currentPage = 1;
+};
+
+onMounted(async () => {
+  const appWindow = getCurrentWindow();
+  // 监听 resize 事件
+  unlisten = await appWindow.onResized(handleWindowResized);
+});
+
+onUnmounted(() => {
+  if (unlisten) {
+    unlisten(); // 清理监听器
+  }
+});
 </script>
 
 <template>

@@ -62,10 +62,10 @@ const downloadingStore = useDownloadingStore();
 const settingStore = useSettingStore();
 
 // 初始化一些数据（可选）
-// if (downloadingStore.items.length < 5) {
+// for (let id = 1; id < 15; id++) {
 //   downloadingStore.addItem({
-//     id: '1',
-//     title: '西瓜-演示下载',
+//     id: id,
+//     title: '西瓜-演示下载' + id,
 //     progress: 80,
 //     isDownloaded: false,
 //     status: 1,
@@ -189,6 +189,38 @@ const nowDownloadHandle = async () => {
   d_loading.value = false
 }
 
+
+import { getCurrentWindow } from '@tauri-apps/api/window';
+let unlisten = null; // 用于清理监听器
+
+// 窗口 resize 事件回调
+const handleWindowResized = async () => {
+  const appWindow = getCurrentWindow();
+  const isMaximized = await appWindow.isMaximized();
+
+  if (isMaximized) {
+    // 最大化时，增加分页大小以显示更多项
+    downloadingStore.pagination.pageSize = 12;
+  } else {
+    // 还原时，恢复默认大小
+    downloadingStore.pagination.pageSize = 5;
+  }
+
+  // 重置当前页
+  downloadingStore.pagination.currentPage = 1;
+};
+
+onMounted(async () => {
+  const appWindow = getCurrentWindow();
+  // 监听 resize 事件
+  unlisten = await appWindow.onResized(handleWindowResized);
+});
+
+onUnmounted(() => {
+  if (unlisten) {
+    unlisten(); // 清理监听器
+  }
+});
 </script>
 
 <template>
