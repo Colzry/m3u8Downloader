@@ -85,23 +85,15 @@ impl DownloadMetrics {
 
     /// 获取双维度进度百分比
     async fn get_progress(&self) -> f64 {
-        if self.total_bytes_valid.load(Ordering::Relaxed) {
-            // 使用字节进度
-            let total = self.total_bytes.load(Ordering::Relaxed) as f64;
-            let done = self.downloaded_bytes.load(Ordering::Relaxed) as f64;
-            if total == 0.0 {
-                0.0
-            } else {
-                (done / total * 100.0).clamp(0.0, 100.0)
-            }
+        if self.total_chunks == 0 {
+            0.0
         } else {
-            // 使用分片进度
-            if self.total_chunks == 0 {
-                0.0
-            } else {
-                let chunks = self.completed_chunks.load(Ordering::Relaxed) as f64;
-                (chunks / self.total_chunks as f64 * 100.0).clamp(0.0, 100.0)
-            }
+            // total_chunks: M3U8中总分片数
+            // completed_chunks: 已完成（无论是本次还是上次）的分片数
+            let chunks = self.completed_chunks.load(Ordering::Relaxed) as f64;
+
+            // 进度 = (已完成分片数 / 总分片数) * 100
+            (chunks / self.total_chunks as f64 * 100.0).clamp(0.0, 100.0)
         }
     }
 }
