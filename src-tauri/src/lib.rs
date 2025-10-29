@@ -11,6 +11,7 @@ mod download;
 mod download_manager;
 mod merge;
 mod logger;
+mod download_monitor;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {

@@ -1,115 +1,31 @@
 //! M3U8 分片下载模块，支持AES-128加密流媒体解密
 //! 核心特性：
 //! - 多线程并发下载
-//! - 实时下载速度计算（平滑处理）
-//! - 双维度进度显示（分片/字节）
-//! - 智能速度单位转换
 //! - 暂停/恢复控制
 //! - 断点续传（基于 manifest 文件，性能更高）
 
+use crate::download_monitor::{run_monitor_task, DownloadMetrics};
 use crate::download_manager::DownloadControl;
 use crate::merge::merge_files;
 use anyhow::Result;
 use openssl::symm::{decrypt, Cipher};
 use reqwest::Client;
-use std::collections::{HashSet, VecDeque};
+use std::collections::HashSet;
 use std::time::Duration;
 use std::{
     sync::{
-        atomic::{AtomicBool, AtomicUsize, Ordering},
+        atomic::Ordering,
         Arc,
     },
-    time::Instant,
 };
 use std::path::Path;
-use tauri::{AppHandle, Emitter};
+use tauri::AppHandle;
 use tokio::sync::Notify;
 use tokio::{
     fs,
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
     sync::{Mutex, Semaphore},
 };
-/// 下载指标跟踪结构体（增强版）
-#[derive(Clone)]
-struct DownloadMetrics {
-    total_chunks: usize,
-    total_bytes: Arc<AtomicUsize>,
-    downloaded_bytes: Arc<AtomicUsize>,
-    completed_chunks: Arc<AtomicUsize>,
-    speed_samples: Arc<Mutex<VecDeque<(Instant, usize)>>>, // 原始采样数据
-    total_bytes_valid: Arc<AtomicBool>,                    // 是否有总字节数
-}
-impl DownloadMetrics {
-    fn new(total_chunks: usize) -> Self {
-        Self {
-            total_chunks,
-            total_bytes: Arc::new(AtomicUsize::new(0)),
-            downloaded_bytes: Arc::new(AtomicUsize::new(0)),
-            completed_chunks: Arc::new(AtomicUsize::new(0)),
-            speed_samples: Arc::new(Mutex::new(VecDeque::with_capacity(10))),
-            total_bytes_valid: Arc::new(AtomicBool::new(true)),
-        }
-    }
-
-    fn mark_total_bytes_invalid(&self) {
-        self.total_bytes_valid.store(false, Ordering::Relaxed);
-    }
-    fn update_total_bytes(&self, size: usize) {
-        self.total_bytes.fetch_add(size, Ordering::Relaxed);
-    }
-    async fn record_chunk(&self, size: usize) {
-        let now = Instant::now();
-        let mut samples = self.speed_samples.lock().await;
-        samples.push_back((now, size));
-        if samples.len() > 3200 {
-            samples.pop_front();
-        }
-        drop(samples); // 提前释放锁，减少竞争
-        self.downloaded_bytes.fetch_add(size, Ordering::Relaxed);
-    }
-
-    /// 获取窗口平均速度（如过去1秒）
-    async fn get_windowed_speed(&self) -> (f64, &'static str) {
-        let now = Instant::now();
-        let samples = self.speed_samples.lock().await;
-        let cutoff = now - Duration::from_secs(1);
-        let relevant: Vec<_> = samples.iter().filter(|(t, _)| *t >= cutoff).collect();
-        if relevant.is_empty() {
-            return (0.0, "KB/s");
-        }
-        let total_bytes: usize = relevant.iter().map(|&(_, size)| size).sum();
-        let duration = now.duration_since(cutoff).as_secs_f64().max(0.5); // 避免除零
-        let bytes_per_second = total_bytes as f64 / duration;
-        let speed_kb = bytes_per_second / 1024.0;
-        if speed_kb >= 1024.0 {
-            (speed_kb / 1024.0, "MB/s")
-        } else {
-            (speed_kb, "KB/s")
-        }
-    }
-
-    /// 获取双维度进度
-    async fn get_progress(&self) -> f64 {
-        if self.total_bytes_valid.load(Ordering::Relaxed) {
-            let total = self.total_bytes.load(Ordering::Relaxed) as f64;
-            let done = self.downloaded_bytes.load(Ordering::Relaxed) as f64;
-            // 增加保护，防止 total 为 0 时出现 NaN
-            if total == 0.0 {
-                0.0
-            } else {
-                (done / total * 100.0).clamp(0.0, 100.0)
-            }
-        } else {
-            // 增加保护，防止 total_chunks 为 0
-            if self.total_chunks == 0 {
-                0.0
-            } else {
-                let chunks = self.completed_chunks.load(Ordering::Relaxed) as f64;
-                (chunks / self.total_chunks as f64 * 100.0).clamp(0.0, 100.0)
-            }
-        }
-    }
-}
 
 /// 加密信息结构体
 /// 用于存储解密TS分片所需的密钥信息
@@ -183,7 +99,7 @@ async fn download_file(
     control: &DownloadControl,
     encryption: Option<EncryptionInfo>,
     pause_notify: Arc<Notify>,     // 暂停通知通道
-    metrics: Arc<DownloadMetrics>, // 新增metrics参数
+    metrics: Arc<DownloadMetrics>, // metrics参数
 ) -> Result<DownloadResult> {
     let mut response = client.get(url).send().await?;
     let mut buffer = Vec::new();
@@ -425,96 +341,12 @@ pub async fn download_m3u8(
     }
 
     // --- 步骤 4: 启动速度监控任务 ---
-    let speed_handle = {
-        let app_handle = app_handle.clone();
-        let control = Arc::clone(&control);
-        let metrics = Arc::clone(&metrics);
-        let id = id.clone();
-
-        tokio::spawn(async move {
-            // 创建定时器并消耗初始触发
-            let mut interval = tokio::time::interval(Duration::from_millis(200));
-            interval.tick().await;
-            let mut last_send_time = Instant::now(); // 新增时间记录
-            let mut needs_reset = false;
-
-            // 上次发送的数据缓存
-            let mut last_data: Option<serde_json::Value> = None;
-            loop {
-                // 暂停时进入等待状态
-                while control.is_paused() {
-                    // 挂起监控任务直到恢复
-                    control.get_notify().notified().await;
-                    needs_reset = true;
-                }
-
-                // 恢复后重置定时器
-                if needs_reset {
-                    interval.reset();
-                    needs_reset = false;
-                }
-                // 等待下一个周期
-                interval.tick().await;
-                // 检查实际间隔（防止处理逻辑耗时影响）
-                let now = Instant::now();
-                if now.duration_since(last_send_time) < Duration::from_millis(200) {
-                    continue;
-                }
-                last_send_time = now;
-
-                // 获取状态数据
-                let is_cancelled = control.is_cancelled();
-                let is_paused = control.is_paused();
-                // 获取速度
-                let (speed_val, speed_unit) = metrics.get_windowed_speed().await;
-                // 获取进度
-                let progress = metrics.get_progress().await;
-
-                // 生成合并标志（增加进度保护）
-                let is_merge = metrics.total_chunks > 0
-                    && metrics.completed_chunks.load(Ordering::Relaxed) == metrics.total_chunks;
-
-                // 构建状态元数据
-                let status_info = match (is_cancelled, is_paused, is_merge) {
-                    (true, _, _) => (0, "已取消"),          // cancelled
-                    (false, true, _) => (1, "已暂停"),      // paused
-                    (false, false, false) => (2, "下载中"), // downloading
-                    (_, _, true) => (3, "正在合并"),        // merge
-                };
-
-                /* status 0-已取消 1-已暂停 2-下载中 3-合并中 4-等待中 */
-
-                // 生成当前事件数据
-                let current_data = serde_json::json!({
-                    "id": id,
-                    "progress": progress.round() as u32,
-                        "speed": format!("{:.2} {}", speed_val, speed_unit),
-                    "status": status_info.0,
-                    "message": status_info.1,
-                    "isMerge": is_merge,
-                    "details": {
-                        "chunks": metrics.completed_chunks.load(Ordering::Relaxed),
-                        "total_chunks": metrics.total_chunks,
-                        "downloaded": metrics.downloaded_bytes.load(Ordering::Relaxed),
-                        "total_bytes": metrics.total_bytes.load(Ordering::Relaxed),
-                    }
-                });
-
-                // 发送事件 去重检查
-                if last_data.as_ref() != Some(&current_data) {
-                    app_handle
-                        .emit("download_progress", current_data.clone())
-                        .ok();
-                    last_data = Some(current_data);
-                }
-
-                // 退出条件
-                if is_cancelled || is_merge {
-                    break;
-                }
-            }
-        })
-    };
+    let speed_handle = run_monitor_task(
+        id.clone(),
+        Arc::clone(&control),
+        Arc::clone(&metrics),
+        app_handle.clone(),
+    ).await;
 
     // --- 步骤 5: 启动下载任务 (只下载 pending_downloads) ---
 
@@ -529,17 +361,16 @@ pub async fn download_m3u8(
 
     let semaphore = Arc::new(Semaphore::new(concurrency));
     let mut handles = Vec::new();
-    for (ts_url, filename, encryption) in pending_downloads { // [!] 只遍历待下载列表
+    for (ts_url, filename, encryption) in pending_downloads {
         let client = client.clone();
         let ts_files = Arc::clone(&ts_files);
         let semaphore = Arc::clone(&semaphore);
         let control = Arc::clone(&control);
         let pause_notify = Arc::clone(&pause_notify);
         let metrics = Arc::clone(&metrics);
-        let manifest_writer = Arc::clone(&manifest_writer); // [!] 克隆写入器
+        let manifest_writer = Arc::clone(&manifest_writer);
 
         handles.push(tokio::spawn(async move {
-            // 获取并发许可
             let _permit = semaphore.acquire().await?;
 
             const MAX_RETRIES: usize = 5;
@@ -547,7 +378,6 @@ pub async fn download_m3u8(
                 if control.is_cancelled() {
                     return Ok::<(), anyhow::Error>(());
                 }
-                // 调用真正的下载函数
                 let result = download_file(
                     &client,
                     &ts_url,
@@ -563,15 +393,13 @@ pub async fn download_m3u8(
                     Ok(DownloadResult::Success(f)) => {
                         log::debug!("✅ 分片 [{}] 下载成功（尝试次数 {}）", f, attempt);
 
-                        // [!] 新逻辑: 写入清单文件
                         if let Some(relative_name) = Path::new(&f).file_name().and_then(|s| s.to_str()) {
                             let mut writer = manifest_writer.lock().await;
                             writer.write_all(format!("{}\n", relative_name).as_bytes()).await?;
                         }
 
-                        // 更新指标和文件列表
                         metrics.completed_chunks.fetch_add(1, Ordering::Relaxed);
-                        ts_files.lock().await.push(f); // 推送成功的文件
+                        ts_files.lock().await.push(f);
                         return Ok(());
                     }
                     Ok(DownloadResult::Skipped(f)) => {
@@ -583,8 +411,8 @@ pub async fn download_m3u8(
                         if attempt < MAX_RETRIES {
                             tokio::time::sleep(Duration::from_millis((attempt * 100) as u64)).await;
                         } else {
-                            log::error!("❌ 分片 [{}] 所有重试失败: {:?}", filename, e);
-                            control.pause(); // 触发暂停，防止继续出错
+                            log::error!("❌ 分片 [{}] 所有重试失败: {:?}, 尝试取消任务", filename, e);
+                            control.cancel(); // 触发取消
                         }
                     }
                 }
