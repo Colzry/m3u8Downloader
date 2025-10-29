@@ -96,12 +96,26 @@ pub async fn resume_download(
 #[tauri::command]
 pub async fn delete_download(
     id: String,
+    output_dir: String,
     manager: tauri::State<'_, DownloadManager>,
 ) -> Result<(), String> {
-    manager
-        .delete_task(&id)
+    // 1. 尝试从管理器中移除（如果任务正在运行）
+    //    我们将调用 manager.delete_task，它会停止任务并删除目录。
+    //    如果任务不存在（例如重启后），它会返回 Ok(()) (根据 download_manager.rs 实现)。
+    //    [!] 假设 delete_task 找不到时不会返回 Err
+    let _ = manager.delete_task(&id).await;
+
+    // 2. 无论 manager 做了什么，我们都再次尝试删除临时目录
+    //    这确保了即使在重启后，目录也会被删除。
+    let temp_dir = format!("{}/temp_{}", output_dir, id);
+
+    log::info!("(delete_download) 正在清理临时目录: {}", temp_dir);
+
+    // tokio::fs::remove_dir_all 会在目录不存在时返回 Ok，这是幂等的
+    tokio::fs::remove_dir_all(&temp_dir)
         .await
-        .map_err(|e| format!("删除任务失败: {}", e))?;
+        .map_err(|e| format!("删除临时目录失败 ({}): {}", temp_dir, e))?;
+
     Ok(())
 }
 

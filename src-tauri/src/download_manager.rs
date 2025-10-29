@@ -50,12 +50,22 @@ impl DownloadControl {
     }
 }
 
+/// 运行时下载任务的句柄
+///
+/// 存储在 DownloadManager 中，用于关联一个 ID 和它的实时控制器。
 pub struct DownloadTask {
     pub control: Arc<DownloadControl>,
     pub temp_dir: String,
     // 如果需要，还可以保存下载任务的 JoinHandle
 }
 
+/// 全局下载管理器（运行时）
+///
+/// 这是一个全局（Tauri State）单例，用于管理 *所有当前活动* 的下载任务。
+///
+/// [!] 职责：
+/// 1. 注册新的下载任务（`add_task`）。
+/// 2. 响应Tauri命令，对 *正在运行* 的任务进行操作（暂停、恢复、删除）。
 pub struct DownloadManager {
     pub tasks: Mutex<HashMap<String, DownloadTask>>,
 }

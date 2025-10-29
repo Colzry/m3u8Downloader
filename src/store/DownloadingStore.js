@@ -44,6 +44,25 @@ export const useDownloadingStore = defineStore('Downloading', {
   
   
   actions: {
+    // 在应用启动时调用，用于清理从持久化存储中加载的状态。
+    init() {
+      for (const item of this.items) {
+        // 1. 将所有“下载中”或“等待中”的任务重置为“已暂停”
+        // status 1 (已暂停) 是重启后的标准“待命”状态
+        if (item.status === 2 || item.status === 4) {
+          item.status = 1; // 1-已暂停
+        }
+        
+        // 2. 重置 isDownloaded 标志
+        // 这会强制 resumeItem 和 tryStartNextDownloads
+        // 在程序重启后的第一次调用时，走 else { this.startDownload(id) } 逻辑。
+        // startDownload 会触发 Rust 端的断点续传（读取 progress.dat）。
+        // 一旦 startDownload 成功执行，isDownloaded 会被重新设为 true (在内存中)，
+        // 使得后续的 *运行时* 暂停/恢复 (invoke('resume_download')) 能够正常工作。
+        item.isDownloaded = false;
+      }
+    },
+    
     setCurrentPage(page) {
       this.pagination.currentPage = Math.max(1,
         Math.min(page, this.totalPages)
@@ -114,19 +133,30 @@ export const useDownloadingStore = defineStore('Downloading', {
       const item = this.getItemById(id)
       if (item?.isDownloaded) {
         await invoke('resume_download', {id})
+        this.updateItem(id, {status: 2})
       } else {
         await this.startDownload(id)
       }
-      this.updateItem(id, {status: 2})
     },
     
     // 移除下载项
     async removeItem(id) {
       const item = this.getItemById(id)
+      if (!item) return;
       const wasActive = item?.status === 2;
-      if (item.isCreatedTempDir) { // 创建了临时目录
-        invoke("delete_download", {id}).catch()
+      try {
+        // outputDir 从 useSettingStore 中获取
+        const settingStore = useSettingStore();
+        
+        await invoke("delete_download", {
+          id: id,
+          outputDir: settingStore.downloadPath
+        });
+        
+      } catch (e) {
+        console.error(`删除任务 ${id} 失败:`, e);
       }
+      
       this.cleanupTaskListeners(id)
       this.items = this.items.filter(i => i.id !== id);
       this.selectedItems = this.selectedItems.filter(i => i !== id);
@@ -278,10 +308,10 @@ export const useDownloadingStore = defineStore('Downloading', {
         const item = this.getItemById(task.id)
         if (item?.isDownloaded) {
           await invoke('resume_download', {id: task.id})
+          this.updateItem(task.id, {isDownloaded: true, status: 2})
         } else {
           await this.startDownload(task.id)
         }
-        this.updateItem(task.id, {isDownloaded: true, status: 2})
       }
     },
   },

@@ -5,13 +5,14 @@
 //! - 双维度进度显示（分片/字节）
 //! - 智能速度单位转换
 //! - 暂停/恢复控制
+//! - 断点续传（基于 manifest 文件，性能更高）
 
 use crate::download_manager::DownloadControl;
 use crate::merge::merge_files;
 use anyhow::Result;
 use openssl::symm::{decrypt, Cipher};
 use reqwest::Client;
-use std::collections::VecDeque;
+use std::collections::{HashSet, VecDeque};
 use std::time::Duration;
 use std::{
     sync::{
@@ -20,11 +21,12 @@ use std::{
     },
     time::Instant,
 };
+use std::path::Path;
 use tauri::{AppHandle, Emitter};
 use tokio::sync::Notify;
 use tokio::{
     fs,
-    io::AsyncWriteExt,
+    io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
     sync::{Mutex, Semaphore},
 };
 /// 下载指标跟踪结构体（增强版）
@@ -91,10 +93,20 @@ impl DownloadMetrics {
         if self.total_bytes_valid.load(Ordering::Relaxed) {
             let total = self.total_bytes.load(Ordering::Relaxed) as f64;
             let done = self.downloaded_bytes.load(Ordering::Relaxed) as f64;
-            (done / total * 100.0).clamp(0.0, 100.0)
+            // 增加保护，防止 total 为 0 时出现 NaN
+            if total == 0.0 {
+                0.0
+            } else {
+                (done / total * 100.0).clamp(0.0, 100.0)
+            }
         } else {
-            let chunks = self.completed_chunks.load(Ordering::Relaxed) as f64;
-            (chunks / self.total_chunks as f64 * 100.0).clamp(0.0, 100.0)
+            // 增加保护，防止 total_chunks 为 0
+            if self.total_chunks == 0 {
+                0.0
+            } else {
+                let chunks = self.completed_chunks.load(Ordering::Relaxed) as f64;
+                (chunks / self.total_chunks as f64 * 100.0).clamp(0.0, 100.0)
+            }
         }
     }
 }
@@ -257,10 +269,11 @@ pub async fn download_m3u8(
 
     // 解析M3U8文件内容
     let m3u8_response = client.get(url).send().await?.text().await?;
-    let mut tasks = Vec::new();
+
+    // --- 步骤 1: 解析M3U8，收集所有分片信息 ---
+    let mut all_ts_segments = Vec::new();
     let mut current_encryption = None;
 
-    // 解析M3U8获取分片列表
     for (index, line) in m3u8_response.lines().enumerate() {
         let line = line.trim();
         if line.starts_with("#EXT-X-KEY:") {
@@ -299,29 +312,97 @@ pub async fn download_m3u8(
                 format!("{}/{}", url.rsplit_once('/').unwrap().0, line)
             };
             let filename = format!("{}/part_{}.ts", temp_dir, index);
-            tasks.push((ts_url, filename, current_encryption.clone()));
+            // 存储元组 (URL, 本地路径, 加密信息)
+            all_ts_segments.push((ts_url, filename, current_encryption.clone()));
         }
     }
 
-    // 并发控制相关初始化
-    let total_chunks = tasks.len();
-    let ts_files = Arc::new(Mutex::new(Vec::with_capacity(total_chunks)));
-    let semaphore = Arc::new(Semaphore::new(concurrency));
+    if all_ts_segments.is_empty() {
+        log::warn!("M3U8 [{} {}] 中未找到 .ts 分片", id, name);
+        return Err(anyhow::anyhow!("M3U8中未找到任何.ts分片"));
+    }
 
-    // 初始化下载指标
-    // 预获取所有分片大小
-    let metrics = Arc::new(DownloadMetrics::new(tasks.len()));
+    // --- 步骤 2: 断点续传检查 (基于 Manifest 文件) ---
+    let total_chunks = all_ts_segments.len();
+    let ts_files = Arc::new(Mutex::new(Vec::with_capacity(total_chunks))); // 存储 *所有* 最终用于合并的ts文件路径
+    let metrics = Arc::new(DownloadMetrics::new(total_chunks));
+    let mut pending_downloads = Vec::new(); // 存储 *真正需要下载* 的任务
+
+    // 加载清单文件
+    let manifest_path = format!("{}/progress.dat", temp_dir);
+    let mut completed_segment_names = HashSet::new();
+
+    if let Ok(file) = tokio::fs::File::open(&manifest_path).await {
+        let reader = BufReader::new(file);
+        let mut lines = reader.lines();
+        while let Some(line) = lines.next_line().await? {
+            if !line.trim().is_empty() {
+                completed_segment_names.insert(line);
+            }
+        }
+    }
+    log::info!("任务 [{}]: 从清单文件中加载了 {} 条已完成记录", id, completed_segment_names.len());
+
+    {
+        let mut ts_files_lock = ts_files.lock().await;
+        for (ts_url, filename, encryption) in all_ts_segments {
+            // 获取相对文件名，例如 "part_123.ts"
+            let relative_name = match Path::new(&filename).file_name().and_then(|s| s.to_str()) {
+                Some(name) => name.to_string(),
+                None => continue, // 路径无效，跳过
+            };
+
+            // 检查清单中是否存在
+            if completed_segment_names.contains(&relative_name) {
+                // 存在，则检查本地文件并更新进度
+                match tokio::fs::metadata(&filename).await {
+                    Ok(metadata) if metadata.len() > 0 => {
+                        // 文件有效，视为已下载
+                        ts_files_lock.push(filename); // 直接加入待合并列表
+
+                        // 更新进度
+                        let file_size = metadata.len() as usize;
+                        metrics.completed_chunks.fetch_add(1, Ordering::Relaxed);
+                        metrics.downloaded_bytes.fetch_add(file_size, Ordering::Relaxed);
+                        metrics.update_total_bytes(file_size); // 更新总字节数
+                    }
+                    _ => {
+                        // 清单存在，但文件丢失/为空，重新下载
+                        pending_downloads.push((ts_url, filename, encryption));
+                    }
+                }
+            } else {
+                // 清单不存在，加入下载队列
+                pending_downloads.push((ts_url, filename, encryption));
+            }
+        }
+    } // 释放 ts_files_lock
+
+    log::info!(
+        "任务 [{}]: 总分片 {}, 已完成 {}, 待下载 {}",
+        id,
+        total_chunks,
+        total_chunks - pending_downloads.len(),
+        pending_downloads.len()
+    );
+
+
+    // --- 步骤 3: 预获取 待下载 分片的大小 ---
     let pre_semaphore = Arc::new(Semaphore::new(concurrency));
     let mut pre_handles: Vec<tokio::task::JoinHandle<()>> = Vec::new();
 
-    for (ts_url, _, _) in &tasks {
+    // 只对需要下载的分片执行 HEAD 请求
+    for (ts_url, _, _) in &pending_downloads {
         let client = client.clone();
         let metrics = metrics.clone();
         let ts_url = ts_url.clone();
         let permit = pre_semaphore.clone();
 
         pre_handles.push(tokio::spawn(async move {
-            let _ = permit.acquire().await; // 忽略Semaphore错误
+            let _permit = match permit.acquire().await {
+                Ok(p) => p,
+                Err(_) => return, // Semaphore
+            };
 
             let _ = client
                 .head(&ts_url)
@@ -343,7 +424,7 @@ pub async fn download_m3u8(
         handle.await?;
     }
 
-    // 启动速度监控任务
+    // --- 步骤 4: 启动速度监控任务 ---
     let speed_handle = {
         let app_handle = app_handle.clone();
         let control = Arc::clone(&control);
@@ -435,15 +516,27 @@ pub async fn download_m3u8(
         })
     };
 
-    // 启动下载任务 ------------------------------------------------------------
+    // --- 步骤 5: 启动下载任务 (只下载 pending_downloads) ---
+
+    // 创建一个线程安全的清单文件写入器
+    let manifest_writer = Arc::new(Mutex::new(
+        tokio::fs::File::options()
+            .append(true)
+            .create(true)
+            .open(&manifest_path)
+            .await?,
+    ));
+
+    let semaphore = Arc::new(Semaphore::new(concurrency));
     let mut handles = Vec::new();
-    for (ts_url, filename, encryption) in tasks {
+    for (ts_url, filename, encryption) in pending_downloads { // [!] 只遍历待下载列表
         let client = client.clone();
         let ts_files = Arc::clone(&ts_files);
         let semaphore = Arc::clone(&semaphore);
         let control = Arc::clone(&control);
         let pause_notify = Arc::clone(&pause_notify);
         let metrics = Arc::clone(&metrics);
+        let manifest_writer = Arc::clone(&manifest_writer); // [!] 克隆写入器
 
         handles.push(tokio::spawn(async move {
             // 获取并发许可
@@ -463,13 +556,22 @@ pub async fn download_m3u8(
                     encryption.clone(),
                     pause_notify.clone(),
                     metrics.clone(),
-                ).await;
+                )
+                    .await;
 
                 match result {
                     Ok(DownloadResult::Success(f)) => {
                         log::debug!("✅ 分片 [{}] 下载成功（尝试次数 {}）", f, attempt);
+
+                        // [!] 新逻辑: 写入清单文件
+                        if let Some(relative_name) = Path::new(&f).file_name().and_then(|s| s.to_str()) {
+                            let mut writer = manifest_writer.lock().await;
+                            writer.write_all(format!("{}\n", relative_name).as_bytes()).await?;
+                        }
+
+                        // 更新指标和文件列表
                         metrics.completed_chunks.fetch_add(1, Ordering::Relaxed);
-                        ts_files.lock().await.push(f); // 只推送真正成功的
+                        ts_files.lock().await.push(f); // 推送成功的文件
                         return Ok(());
                     }
                     Ok(DownloadResult::Skipped(f)) => {
@@ -482,8 +584,7 @@ pub async fn download_m3u8(
                             tokio::time::sleep(Duration::from_millis((attempt * 100) as u64)).await;
                         } else {
                             log::error!("❌ 分片 [{}] 所有重试失败: {:?}", filename, e);
-                            control.pause();
-                            control.cancel();
+                            control.pause(); // 触发暂停，防止继续出错
                         }
                     }
                 }
@@ -493,27 +594,56 @@ pub async fn download_m3u8(
         }));
     }
 
-    // 等待所有下载任务完成
+    // --- 步骤 6: 等待所有下载任务完成 ---
+    // (逻辑微调，以处理下载失败)
     for handle in handles {
         handle.await??;
     }
 
-    // 合并 TS 文件为 MP4
+    // 检查是否所有分片都已就绪（包括已存在和刚下载的）
+    let final_ts_files = Arc::try_unwrap(ts_files).unwrap().into_inner();
+    if final_ts_files.len() != total_chunks {
+        log::error!(
+            "任务 [{} {}] 未能集齐所有分片。预期: {}, 实际: {}. 可能已被取消或下载失败。",
+            id,
+            name,
+            total_chunks,
+            final_ts_files.len()
+        );
+
+        if !control.is_cancelled() {
+            // 如果不是用户主动取消，而是下载失败，则强制取消
+            control.cancel();
+            // 等待速度监控任务退出
+            speed_handle.await?;
+            return Err(anyhow::anyhow!("下载失败，部分分片缺失"));
+        }
+    } else {
+        log::info!("任务 [{} {}] 所有分片均已就绪，准备合并。", id, name);
+    }
+
+    // 等待速度监控任务退出
+    speed_handle.await?;
+
+    // 如果任务被取消，则跳过合并
+    if control.is_cancelled() {
+        log::warn!("任务 [{} {}] 已被取消，跳过合并。", id, name);
+        return Ok(());
+    }
+
+    // --- 步骤 7: 合并 TS 文件为 MP4 ---
     merge_files(
         id.clone(),
         &name,
-        Arc::try_unwrap(ts_files).unwrap().into_inner(),
+        final_ts_files,
         &temp_dir,
         &output_dir,
         app_handle.clone(),
     )
-    .await?;
-    // merge_ts_to_mp4(id.clone(), &name, ts_files, &output_dir, app_handle.clone())
-    //     .await
-    //     .map_err(|e| e.to_string())?;
+        .await?;
 
-    // 等待速度监控任务退出
-    speed_handle.await?;
+    // [!] 合并成功后，可以考虑删除清单文件，但保留它也无妨
+    // tokio::fs::remove_file(manifest_path).await.ok();
 
     Ok(())
 }

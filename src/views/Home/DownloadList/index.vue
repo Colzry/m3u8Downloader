@@ -211,6 +211,8 @@ const handleWindowResized = async () => {
 };
 
 onMounted(async () => {
+  downloadingStore.init();
+
   const appWindow = getCurrentWindow();
   // 监听 resize 事件
   unlisten = await appWindow.onResized(handleWindowResized);

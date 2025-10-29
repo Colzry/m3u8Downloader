@@ -72,6 +72,7 @@ export const useDownloadedStore = defineStore('Downloaded', {
     // 移除下载项
     async removeItem(id) {
       const item = this.getItemById(id)
+      if (!item) return;
       this.items = this.items.filter((item) => item.id !== id);
       if (settingStore.isDeleteDownloadFile) {
         await invoke("delete_file", {filePath: item.file})
