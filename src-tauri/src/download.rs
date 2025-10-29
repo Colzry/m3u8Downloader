@@ -19,6 +19,7 @@ use std::{
     },
 };
 use std::path::Path;
+use rand::Rng;
 use tauri::AppHandle;
 use tokio::sync::Notify;
 use tokio::{
@@ -373,7 +374,7 @@ pub async fn download_m3u8(
         handles.push(tokio::spawn(async move {
             let _permit = semaphore.acquire().await?;
 
-            const MAX_RETRIES: usize = 5;
+            const MAX_RETRIES: usize = 15;
             for attempt in 1..=MAX_RETRIES {
                 if control.is_cancelled() {
                     return Ok::<(), anyhow::Error>(());
@@ -409,7 +410,19 @@ pub async fn download_m3u8(
                     Err(e) => {
                         log::error!("⚠️ 分片 [{}] 第 {} 次下载失败，原因：{}", filename, attempt, e);
                         if attempt < MAX_RETRIES {
-                            tokio::time::sleep(Duration::from_millis((attempt * 100) as u64)).await;
+                            // 优化点 1: 实现指数退避和随机抖动
+                            // 计算基础延迟: 2^attempt 秒，最大不超过 10 秒
+                            let base_delay_secs = (1 << (attempt - 1)).min(10);
+
+                            // 引入随机抖动: 延迟在 [base_delay_secs, base_delay_secs + 1] 之间
+                            let mut rng = rand::thread_rng();
+                            let random_millis = rng.gen_range(0..1000);
+
+                            let total_delay = Duration::from_secs(base_delay_secs as u64)
+                                + Duration::from_millis(random_millis);
+
+                            log::info!("➡️ 分片 [{}] 正在退避，等待 {:?}", filename, total_delay);
+                            tokio::time::sleep(total_delay).await;
                         } else {
                             log::error!("❌ 分片 [{}] 所有重试失败: {:?}, 尝试取消任务", filename, e);
                             control.cancel(); // 触发取消
