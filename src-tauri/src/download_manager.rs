@@ -80,14 +80,14 @@ impl DownloadManager {
     /// 添加任务
     pub async fn add_task(&self, id: String, task: DownloadTask) {
         self.tasks.lock().await.insert(id.clone(), task);
-        log::debug!("添加下载任务 {}", id);
+        log::info!("添加下载任务 {}", id);
     }
 
     /// 暂停任务
     pub async fn pause_task(&self, id: &str) {
         if let Some(task) = self.tasks.lock().await.get(id) {
             task.control.pause();
-            log::debug!("{} 暂停下载", id);
+            log::info!("{} 暂停下载任务", id);
         }
     }
 
@@ -95,7 +95,7 @@ impl DownloadManager {
     pub async fn resume_task(&self, id: &str) {
         if let Some(task) = self.tasks.lock().await.get(id) {
             task.control.resume();
-            log::debug!("{} 恢复下载", id);
+            log::info!("{} 恢复下载任务", id);
         }
     }
 
@@ -103,6 +103,7 @@ impl DownloadManager {
     pub async fn cancel_task(&self, id: &str) {
         if let Some(task) = self.tasks.lock().await.get(id) {
             task.control.cancel();
+            log::info!("{} 取消下载任务", id);
         }
     }
 
@@ -116,7 +117,7 @@ impl DownloadManager {
             tokio::fs::remove_dir_all(task.temp_dir).await?;
             log::info!("{} 删除临时下载目录", id);
         }
-        log::debug!("删除任务 {}", id);
+        log::info!("删除下载任务 {}", id);
         Ok(())
     }
 }

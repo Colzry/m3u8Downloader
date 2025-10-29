@@ -19,7 +19,8 @@ use std::{
     },
 };
 use std::path::Path;
-use rand::Rng;
+use rand::{Rng, SeedableRng};
+use rand::rngs::SmallRng;
 use tauri::AppHandle;
 use tokio::sync::Notify;
 use tokio::{
@@ -415,7 +416,7 @@ pub async fn download_m3u8(
                             let base_delay_secs = (1 << (attempt - 1)).min(10);
 
                             // 引入随机抖动: 延迟在 [base_delay_secs, base_delay_secs + 1] 之间
-                            let mut rng = rand::thread_rng();
+                            let mut rng = SmallRng::from_entropy();
                             let random_millis = rng.gen_range(0..1000);
 
                             let total_delay = Duration::from_secs(base_delay_secs as u64)
