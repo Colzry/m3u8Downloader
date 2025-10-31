@@ -4,6 +4,7 @@ use fern::Dispatch;
 use log::LevelFilter;
 use chrono::Local;
 use std::path::PathBuf;
+use tauri::{AppHandle, Manager};
 
 pub mod rotate;
 
@@ -53,17 +54,17 @@ fn detect_log_level_from_files(install_dir: &PathBuf) -> LevelFilter {
 }
 
 /// 初始化带有日志滚动的 logging 系统
-pub fn setup_logging() -> Result<(), String> {
-    let install_dir = get_install_dir()?;
+pub fn setup_logging(app_handle: &AppHandle) -> Result<(), String> {
+    // 使用 AppHandle 获取日志目录
+    let log_dir = rotate::get_log_dir_path(app_handle)?;
 
     // 创建 logs 文件夹（如果不存在）
-    let log_dir = rotate::get_log_dir_path();
     if !log_dir.exists() {
         std::fs::create_dir_all(&log_dir).map_err(|e| e.to_string())?;
     }
 
     // 初始化一次后，清除历史旧日志
-    rotate::clean_old_logs();
+    rotate::clean_old_logs(&log_dir);
 
     // 根据当前日期构建日志文件名（每天一个）
     let mut log_file_path = log_dir;
@@ -76,8 +77,11 @@ pub fn setup_logging() -> Result<(), String> {
         .open(log_file_path)
         .map_err(|e| e.to_string())?;
 
-    // 读取配置文件获取当前日志等级
-    let level = detect_log_level_from_files(&install_dir);
+    // 从安装目录检测级别
+    // 注意：如果 get_install_dir 失败（例如在 AppImage 中），这将回退到 Info 级别
+    let level = get_install_dir()
+        .map(|dir| detect_log_level_from_files(&dir))
+        .unwrap_or(LevelFilter::Info);
 
     Dispatch::new()
         .format(move |out, message, record| {
@@ -94,8 +98,9 @@ pub fn setup_logging() -> Result<(), String> {
         .apply()
         .map_err(|e| e.to_string())?;
 
-    log::info!("✅ 日志模块加载成功");
+    log::info!("✅ 日志模块加载成功 (Tauri 路径)");
     log::info!("ℹ️ 当前日志级别为: {:?}", level);
+    log::info!("ℹ️ 日志文件位于: {:?}", app_handle.path().app_log_dir().unwrap());
 
     Ok(())
 }

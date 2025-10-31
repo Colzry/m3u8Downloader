@@ -1,6 +1,7 @@
 use chrono::Local;
 use std::fs;
 use std::path::PathBuf;
+use tauri::{AppHandle, Manager};
 
 const MAX_LOG_KEEP_DAYS: i64 = 30; // 只保存最近30天日志
 
@@ -10,14 +11,19 @@ pub fn get_today_log_file_name() -> String {
 }
 
 // 获取 log 路径，同时创建目录（如果需要）
-pub fn get_log_dir_path() -> PathBuf {
-    super::get_install_dir().unwrap_or_else(|_| std::env::current_dir().unwrap()).join("logs")
+pub fn get_log_dir_path(app_handle: &AppHandle) -> Result<PathBuf, String> {
+    let log_dir = app_handle.path().app_log_dir()
+        .map_err(|e| format!("无法获取Tauri应用日志目录: {}", e))?;
+
+    // 在Linux上，这通常是 /home/username/.config/[YourAppBundleIdentifier]/logs
+    // 在Windows上，是 %APPDATA%\Tauri\[YourAppBundleIdentifier]\logs
+    // 在macOS上，是 ~/Library/Logs/[YourAppBundleIdentifier]/
+
+    Ok(log_dir)
 }
 
 // 清除旧日志（大于30天前）
-pub fn clean_old_logs() {
-    let log_dir = get_log_dir_path();
-
+pub fn clean_old_logs(log_dir: &PathBuf) {
     // 判断目录是否存在
     if !log_dir.exists() {
         eprintln!("📁 日志目录不存在，跳过清理");

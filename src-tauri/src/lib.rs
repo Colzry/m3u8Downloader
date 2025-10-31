@@ -24,10 +24,6 @@ pub fn run() {
     // 设置 Tauri 的异步运行时
     async_runtime::set(runtime.handle().clone());
 
-    if let Err(e) = logger::setup_logging() {
-        eprintln!("⚠️ 初始化日志失败：{}", e);
-    }
-
     // 启动 Tauri 应用程序
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -36,6 +32,10 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_store::Builder::new().build())
         .setup(|app| {
+            if let Err(e) = logger::setup_logging(&app.handle()) {
+                eprintln!("⚠️ 初始化Tauri日志失败：{}", e);
+            }
+
             enable_tray(app)?;
             // 初始化 store 并读取配置
             let store = app.store("settings.dat")?;
