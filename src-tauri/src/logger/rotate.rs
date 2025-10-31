@@ -16,7 +16,7 @@ pub fn get_log_dir_path(app_handle: &AppHandle) -> Result<PathBuf, String> {
         .map_err(|e| format!("无法获取Tauri应用日志目录: {}", e))?;
 
     // 在Linux上，这通常是 /home/username/.config/[YourAppBundleIdentifier]/logs
-    // 在Windows上，是 %APPDATA%\Tauri\[YourAppBundleIdentifier]\logs
+    // 在Windows上，是 %LOCALAPPDATA%\[YourAppBundleIdentifier]\logs
     // 在macOS上，是 ~/Library/Logs/[YourAppBundleIdentifier]/
 
     Ok(log_dir)
