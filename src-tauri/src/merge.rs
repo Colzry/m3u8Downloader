@@ -1,7 +1,9 @@
+use std::path::PathBuf;
 use anyhow::Result;
 use tauri::{AppHandle, Emitter};
 use tokio::fs::File;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use crate::logger::get_install_dir;
 
 // 下载的ts文件排序
 fn sort_ts_files(ts_files: &mut Vec<String>) {
@@ -46,19 +48,37 @@ pub async fn merge_files(
     // 输出文件路径
     let output_file = format!("{}/{}.mp4", output_dir, name);
 
+    // 获取可执行文件所在的目录
+    let base_dir = get_install_dir()
+        .map_err(|e| anyhow::anyhow!("无法获取安装目录: {}", e))?;
+
     // 构造跨平台命令
     #[cfg(target_os = "windows")]
-    let ffmpeg = "bin/win/ffmpeg.exe";
+    let ffmpeg_path: PathBuf = base_dir.join("bin/win/ffmpeg.exe");
     #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
-    let ffmpeg = "bin/linux/ffmpeg";
+    let ffmpeg_path: PathBuf = base_dir.join("bin/linux/ffmpeg");
     #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-    let ffmpeg = "bin/darwin/arm64/ffmpeg";
+    let ffmpeg_path: PathBuf = base_dir.join("bin/darwin/arm64/ffmpeg");
     #[cfg(all(target_os = "macos", target_arch = "x86_64"))]
-    let ffmpeg = "bin/darwin/x64/ffmpeg";
+    let ffmpeg_path: PathBuf = base_dir.join("bin/darwin/x64/ffmpeg");
+
+    // 将 PathBuf 转换为 &str，用于后续命令
+    let ffmpeg = ffmpeg_path.to_str()
+        .ok_or_else(|| anyhow::anyhow!("无效的 ffmpeg 路径 (包含非UTF8字符)"))?;
 
     // 检查 ffmpeg 是否存在
     if !std::path::Path::new(ffmpeg).exists() {
         return Err(anyhow::anyhow!("ffmpeg binary not found at {}", ffmpeg));
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        // 设置权限为 rwxr-xr-x (0o755)
+        let perms = std::fs::Permissions::from_mode(0o755);
+        std::fs::set_permissions(&ffmpeg_path, perms)
+            .map_err(|e| anyhow::anyhow!("无法为 ffmpeg 设置执行权限 ({}): {}", ffmpeg, e))?;
+        log::info!("已设置 ffmpeg 执行权限: {}", ffmpeg);
     }
 
     // 创建 Command
