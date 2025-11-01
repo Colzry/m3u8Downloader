@@ -2,11 +2,13 @@ use std::path::PathBuf;
 use anyhow::Result;
 use tauri::{AppHandle, Emitter, Manager};
 use tauri::path::BaseDirectory;
+use tokio::fs;
 use tokio::fs::File;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 /// 根据当前平台和架构，从 Tauri 资源中解析 ffmpeg 可执行文件的绝对路径。
-pub fn resolve_ffmpeg_path(handle: &AppHandle) -> Result<PathBuf> {
+/// 如果是 Linux/macOS，则将其复制到 AppData 目录并设置执行权限。
+pub async fn resolve_ffmpeg_path_and_prepare(handle: &AppHandle) -> Result<PathBuf> {
     // 1. 根据平台和架构确定资源名称
     #[cfg(target_os = "windows")]
     let resource_name = "bin/win/ffmpeg.exe";
@@ -21,11 +23,42 @@ pub fn resolve_ffmpeg_path(handle: &AppHandle) -> Result<PathBuf> {
     #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
     return Err(anyhow::anyhow!("不支持的操作系统或架构"));
 
-    // 2. 使用 AppHandle::path().resolve() 来获取打包资源的运行时绝对路径
-    handle
+    // 2. 获取打包资源的运行时绝对路径
+    let resource_path = handle
         .path()
         .resolve(resource_name, BaseDirectory::Resource)
-        .map_err(|e| anyhow::anyhow!("无法解析 ffmpeg 资源路径 ({}): {}", resource_name, e))
+        .map_err(|e| anyhow::anyhow!("无法解析 ffmpeg 资源路径 ({}): {}", resource_name, e))?;
+
+    // 3. 确定目标路径 (使用 AppData 目录)
+    let app_data_dir = handle.path().app_data_dir()
+        .map_err(|e| anyhow::anyhow!("无法获取 AppData 目录: {}", e))?;
+
+    // 确保目录存在
+    fs::create_dir_all(&app_data_dir).await?;
+
+    let target_name = resource_path.file_name().ok_or_else(|| anyhow::anyhow!("无效的 ffmpeg 文件名"))?;
+    let target_path = app_data_dir.join(target_name);
+
+    // 4. 复制文件（仅当目标文件不存在时才复制和设置权限）
+    if !target_path.exists() {
+        // 使用 tokio::fs::copy 进行异步复制
+        fs::copy(&resource_path, &target_path).await?;
+        log::info!("已将 ffmpeg 资源文件复制到: {}", target_path.display());
+
+        // 5. 设置 Linux/macOS 执行权限
+        #[cfg(not(target_os = "windows"))]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            // 设置权限为 rwxr-xr-x (0o755)
+            let perms = std::fs::Permissions::from_mode(0o755);
+            // 这里使用 std::fs::set_permissions 因为它不是 I/O 密集型操作
+            std::fs::set_permissions(&target_path, perms)
+                .map_err(|e| anyhow::anyhow!("无法为 ffmpeg 设置执行权限 ({}): {}", target_path.display(), e))?;
+            log::info!("已设置 ffmpeg 执行权限: {}", target_path.display());
+        }
+    }
+
+    Ok(target_path)
 }
 
 // 下载的ts文件排序
@@ -71,8 +104,8 @@ pub async fn merge_files(
     // 输出文件路径
     let output_file = format!("{}/{}.mp4", output_dir, name);
 
-    // 获取可执行文件所在的目录
-    let ffmpeg_path = resolve_ffmpeg_path(&app_handle)?;
+    // 获取可执行文件所在的目录，并进行复制和设置权限
+    let ffmpeg_path = resolve_ffmpeg_path_and_prepare(&app_handle).await?;
 
     log::info!("ffmpeg {} -> {}", output_file, ffmpeg_path.to_str().unwrap());
 
