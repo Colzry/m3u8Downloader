@@ -74,6 +74,8 @@ pub async fn merge_files(
     // 获取可执行文件所在的目录
     let ffmpeg_path = resolve_ffmpeg_path(&app_handle)?;
 
+    log::info!("ffmpeg {} -> {}", output_file, ffmpeg_path.to_str().unwrap());
+
     // 将 PathBuf 转换为 &str，用于后续命令
     let ffmpeg = ffmpeg_path.to_str()
         .ok_or_else(|| anyhow::anyhow!("无效的 ffmpeg 路径 (包含非UTF8字符)"))?;
