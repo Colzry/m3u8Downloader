@@ -180,7 +180,7 @@ const nowDownloadHandle = async () => {
           notification.error({
             content: downloadingStore.getItemById(id).title + '下载失败',
             meta: err,
-            duration: 5000,
+            // duration: 5000,
             keepAliveOnHover: true
           })
         }
