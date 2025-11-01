@@ -98,7 +98,7 @@ pub fn setup_logging(app_handle: &AppHandle) -> Result<(), String> {
         .apply()
         .map_err(|e| e.to_string())?;
 
-    log::info!("✅ 日志模块加载成功 (Tauri 路径)");
+    log::info!("✅ 日志模块加载成功");
     log::info!("ℹ️ 当前日志级别为: {:?}", level);
     log::info!("ℹ️ 日志文件位于: {:?}", app_handle.path().app_log_dir().unwrap());
 

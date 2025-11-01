@@ -1,9 +1,32 @@
 use std::path::PathBuf;
 use anyhow::Result;
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
+use tauri::path::BaseDirectory;
 use tokio::fs::File;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use crate::logger::get_install_dir;
+
+/// 根据当前平台和架构，从 Tauri 资源中解析 ffmpeg 可执行文件的绝对路径。
+pub fn resolve_ffmpeg_path(handle: &AppHandle) -> Result<PathBuf> {
+    // 1. 根据平台和架构确定资源名称
+    #[cfg(target_os = "windows")]
+    let resource_name = "bin/win/ffmpeg.exe";
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    let resource_name = "bin/linux/ffmpeg";
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    let resource_name = "bin/darwin/arm64/ffmpeg";
+    #[cfg(all(target_os = "macos", target_arch = "x86_64"))]
+    let resource_name = "bin/darwin/x64/ffmpeg";
+
+    // 如果没有匹配的平台/架构配置，则抛出错误
+    #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
+    return Err(anyhow::anyhow!("不支持的操作系统或架构"));
+
+    // 2. 使用 AppHandle::path().resolve() 来获取打包资源的运行时绝对路径
+    handle
+        .path()
+        .resolve(resource_name, BaseDirectory::Resource)
+        .map_err(|e| anyhow::anyhow!("无法解析 ffmpeg 资源路径 ({}): {}", resource_name, e))
+}
 
 // 下载的ts文件排序
 fn sort_ts_files(ts_files: &mut Vec<String>) {
@@ -49,18 +72,7 @@ pub async fn merge_files(
     let output_file = format!("{}/{}.mp4", output_dir, name);
 
     // 获取可执行文件所在的目录
-    let base_dir = get_install_dir()
-        .map_err(|e| anyhow::anyhow!("无法获取安装目录: {}", e))?;
-
-    // 构造跨平台命令
-    #[cfg(target_os = "windows")]
-    let ffmpeg_path: PathBuf = base_dir.join("bin/win/ffmpeg.exe");
-    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
-    let ffmpeg_path: PathBuf = base_dir.join("bin/linux/ffmpeg");
-    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-    let ffmpeg_path: PathBuf = base_dir.join("bin/darwin/arm64/ffmpeg");
-    #[cfg(all(target_os = "macos", target_arch = "x86_64"))]
-    let ffmpeg_path: PathBuf = base_dir.join("bin/darwin/x64/ffmpeg");
+    let ffmpeg_path = resolve_ffmpeg_path(&app_handle)?;
 
     // 将 PathBuf 转换为 &str，用于后续命令
     let ffmpeg = ffmpeg_path.to_str()
@@ -71,6 +83,9 @@ pub async fn merge_files(
         return Err(anyhow::anyhow!("ffmpeg binary not found at {}", ffmpeg));
     }
 
+    // ----------------------------------------------------
+    // 设置 Linux/macOS 执行权限 (如果不是 Windows)
+    // ----------------------------------------------------
     #[cfg(not(target_os = "windows"))]
     {
         use std::os::unix::fs::PermissionsExt;
