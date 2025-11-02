@@ -1,6 +1,6 @@
 [package]
 name = "m3u8Downloader"
-version = "1.1.0"
+version = "1.1.1"
 description = "m3u8Downloader m3u8视频下载器"
 authors = ["Colzry <colzry@foxmail.com>"]
 edition = "2021"
