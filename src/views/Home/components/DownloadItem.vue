@@ -186,7 +186,7 @@ const deleteTask = async () => {
         padding: 0 10px;
       }
       .tail {
-        min-width: 70px;
+        min-width: 80px;
         white-space: nowrap;
       }
     }

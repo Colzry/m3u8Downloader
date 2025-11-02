@@ -67,6 +67,7 @@ const settingStore = useSettingStore();
 //     id: id,
 //     title: '西瓜-演示下载' + id,
 //     progress: 80,
+//     speed: '999.99 KB/s',
 //     isDownloaded: false,
 //     status: 1,
 //     url: 'https://sf1-cdn-tos.huoshanstatic.com/obj/media-fe/xgplayer_doc_video/hls/xgplayer-demo.m3u8',
