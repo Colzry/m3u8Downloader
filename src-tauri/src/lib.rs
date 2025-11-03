@@ -26,6 +26,28 @@ pub fn run() {
 
     // 启动 Tauri 应用程序
     tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app, argv, cwd| {
+            // 多次启动聚焦主窗口
+            if let Some(window) = app.get_webview_window("main") {
+                // 1. 检查是否最小化，如果是则恢复
+                if let Ok(true) = window.is_minimized() {
+                    if let Err(e) = window.unminimize() {
+                        eprintln!("无法恢复窗口: {}", e);
+                    }
+                }
+                // 2. 检查是否隐藏，如果是则显示
+                if let Ok(false) = window.is_visible() {
+                    if let Err(e) = window.show() {
+                        eprintln!("无法显示窗口: {}", e);
+                    }
+                }
+
+                // 3. 最后，将窗口带到前台并聚焦
+                if let Err(e) = window.set_focus() {
+                    eprintln!("无法聚焦窗口: {}", e);
+                }
+            }
+        }))
         .plugin(tauri_plugin_dialog::init())
         .manage(DownloadManager::new()) // 注册下载全局状态管理
         .plugin(tauri_plugin_fs::init())
