@@ -4,11 +4,17 @@
 //! - 暂停/恢复控制
 //! - 断点续传（基于 manifest 文件，性能更高）
 
+#[allow(deprecated)]
 use crate::download_monitor::{run_monitor_task, DownloadMetrics};
 use crate::download_manager::DownloadControl;
 use crate::merge::merge_files;
-use anyhow::Result;
-use openssl::symm::{decrypt, Cipher};
+use anyhow::{anyhow, Result};
+use aes::Aes128;
+use cipher::{
+    BlockDecryptMut, KeyIvInit, block_padding::Pkcs7
+};
+use cipher::generic_array::GenericArray;
+use cbc::Decryptor;
 use reqwest::Client;
 use std::collections::HashSet;
 use std::time::Duration;
@@ -151,10 +157,20 @@ async fn download_file(
     }
 
     // AES-128解密处理
-    let data = if let Some(enc) = encryption {
-        let iv = enc.iv.unwrap_or_else(|| vec![0; 16]); // 默认IV处理
-        let cipher = Cipher::aes_128_cbc();
-        decrypt(cipher, &enc.key, Some(&iv), &buffer)?
+    let data: Vec<u8> = if let Some(enc) = encryption {
+        let iv_vec = enc.iv.unwrap_or_else(|| vec![0; 16]); // 默认IV处理
+        let key = GenericArray::from_slice(&enc.key);
+        let iv = GenericArray::from_slice(&iv_vec);
+
+        let decryptor = Decryptor::<Aes128>::new(key, iv);
+
+        let mut buffer_clone = buffer.clone();
+
+        let decrypted = decryptor
+            .decrypt_padded_mut::<Pkcs7>(&mut buffer_clone)
+            .map_err(|e| anyhow!("Decryption failed: {:?}", e))?;
+
+        decrypted.to_vec()
     } else {
         buffer
     };
