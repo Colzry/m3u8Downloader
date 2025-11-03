@@ -10,23 +10,21 @@ import {
 import router from "@/router/index.js";
 import { useUIStore } from '@/store/UIStore';
 const UIStore = useUIStore();
-import {useSettingStore} from "@/store/SettingStore.js";
 import {exists} from "@tauri-apps/plugin-fs";
 import { useNotification } from "naive-ui";
 import {videoDir} from "@tauri-apps/api/path";
 import {invoke} from "@tauri-apps/api/core";
 import {listen} from "@tauri-apps/api/event";
-import {show} from "@tauri-apps/api/app";
+import {useSettingStore} from "@/store/SettingStore.js";
+import {useDownloadingStore} from "@/store/DownloadingStore.js";
 
+const downloadingStore = useDownloadingStore();
 const settingStore = useSettingStore()
 const notification = useNotification();
 onBeforeMount(async () => {
   const videoPath = await videoDir();
   if (settingStore.downloadPath === '') {
-    // 执行首次启动初始化操作，如设置默认值
-    console.log("dir ---> ", videoPath)
     settingStore.downloadPath = videoPath
-    console.log("首次启动，已设置初始值");
   } else {
     const isExistsDownloadPath = await exists(settingStore.downloadPath)
     if (!isExistsDownloadPath) {
@@ -37,6 +35,9 @@ onBeforeMount(async () => {
       })
     }
   }
+
+  downloadingStore.init()
+
   if (settingStore.threadCount === 4) {
     const [_, logicalCores] = await invoke('get_cpu_info');
     settingStore.threadCount = logicalCores

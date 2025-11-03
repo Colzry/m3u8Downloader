@@ -2,8 +2,6 @@ import { defineStore } from 'pinia';
 import {useSettingStore} from "@/store/SettingStore.js";
 import {invoke} from "@tauri-apps/api/core";
 
-const settingStore = useSettingStore()
-
 export const useDownloadedStore = defineStore('Downloaded', {
   state: () => ({
     items: [], // 下载完成项列表
@@ -71,6 +69,7 @@ export const useDownloadedStore = defineStore('Downloaded', {
     
     // 移除下载项
     async removeItem(id) {
+      const settingStore = useSettingStore()
       const item = this.getItemById(id)
       if (!item) return;
       this.items = this.items.filter((item) => item.id !== id);

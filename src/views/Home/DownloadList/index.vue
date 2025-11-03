@@ -57,7 +57,6 @@ const rules = {
 
 import { useDownloadingStore } from '@/store/DownloadingStore';
 import { useSettingStore } from "@/store/SettingStore.js";
-import {invoke} from "@tauri-apps/api/core";
 const downloadingStore = useDownloadingStore();
 const settingStore = useSettingStore();
 
@@ -212,8 +211,6 @@ const handleWindowResized = async () => {
 };
 
 onMounted(async () => {
-  downloadingStore.init();
-
   const appWindow = getCurrentWindow();
   // 监听 resize 事件
   unlisten = await appWindow.onResized(handleWindowResized);

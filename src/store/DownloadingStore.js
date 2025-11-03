@@ -4,9 +4,6 @@ import {useDownloadedStore} from "@/store/DownloadedStore.js";
 import {useSettingStore} from "@/store/SettingStore.js";
 import {listen} from "@tauri-apps/api/event";
 
-const downloadedStore = useDownloadedStore()
-const settingStore = useSettingStore()
-
 export const useDownloadingStore = defineStore('Downloading', {
   
   /**
@@ -100,6 +97,7 @@ export const useDownloadingStore = defineStore('Downloading', {
     
     // 检查最大下载数，如果达到最大并发数，设置为等待状态
     checkMaxDownloads(id) {
+      const settingStore = useSettingStore();
       // 获取当前活跃任务数
       const activeCount = this.items.filter(
         item => item.status === 2 // 2 表示下载中
@@ -211,6 +209,8 @@ export const useDownloadingStore = defineStore('Downloading', {
     
     // 启动新下载任务
     async startDownload(taskId) {
+      const settingStore = useSettingStore();
+      const downloadedStore = useDownloadedStore();
       // 如果达到最大并发数，设置为等待状态
       if(this.checkMaxDownloads(taskId)) return;
       
