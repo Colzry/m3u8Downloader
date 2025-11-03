@@ -26,7 +26,7 @@ pub fn run() {
 
     // 启动 Tauri 应用程序
     tauri::Builder::default()
-        .plugin(tauri_plugin_single_instance::init(|app, argv, cwd| {
+        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
             // 多次启动聚焦主窗口
             if let Some(window) = app.get_webview_window("main") {
                 // 1. 检查是否最小化，如果是则恢复

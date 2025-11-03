@@ -4,7 +4,7 @@
 //! - 暂停/恢复控制
 //! - 断点续传（基于 manifest 文件，性能更高）
 
-#[allow(deprecated)]
+#![allow(deprecated)]
 use crate::download_monitor::{run_monitor_task, DownloadMetrics};
 use crate::download_manager::DownloadControl;
 use crate::merge::merge_files;
