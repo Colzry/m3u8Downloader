@@ -7,7 +7,7 @@ import {listen} from "@tauri-apps/api/event";
 export const useDownloadingStore = defineStore('Downloading', {
   
   /**
-   status 0-已取消 1-已暂停 2-下载中 3-合并中 4-等待中
+   status 0-已取消 1-等待中 2-下载中 3-合并中
    **/
   
   state: () => ({
@@ -44,18 +44,16 @@ export const useDownloadingStore = defineStore('Downloading', {
     // 在应用启动时调用，用于清理从持久化存储中加载的状态。
     init() {
       for (const item of this.items) {
-        // 1. 将所有“下载中”或“等待中”的任务重置为“已暂停”
-        // status 1 (已暂停) 是重启后的标准“待命”状态
-        if (item.status === 2 || item.status === 4) {
-          item.status = 1; // 1-已暂停
+        // 1. 将所有"下载中"或"等待中"的任务重置为"已取消"
+        // status 0 (已取消) 是重启后的标准"待命"状态
+        if (item.status === 2 || item.status === 1) {
+          item.status = 0; // 0-已取消
         }
         
         // 2. 重置 isDownloaded 标志
-        // 这会强制 resumeItem 和 tryStartNextDownloads
-        // 在程序重启后的第一次调用时，走 else { this.startDownload(id) } 逻辑。
+        // 这会强制 continueDownload 在程序重启后的第一次调用时，
+        // 走 startDownload 逻辑。
         // startDownload 会触发 Rust 端的断点续传（读取 progress.dat）。
-        // 一旦 startDownload 成功执行，isDownloaded 会被重新设为 true (在内存中)，
-        // 使得后续的 *运行时* 暂停/恢复 (invoke('resume_download')) 能够正常工作。
         item.isDownloaded = false;
       }
     },
@@ -105,47 +103,61 @@ export const useDownloadingStore = defineStore('Downloading', {
       
       // 如果达到最大并发数，设置为等待状态
       if (activeCount >= settingStore.downloadCount) {
-        this.updateItem(id, { status: 4 }); // 4 表示等待中
+        this.updateItem(id, { status: 1 }); // 1 表示等待中
         return true;
       }
       return false;
     },
     
     
-    async pauseItem(id) {
+    // 取消下载（保留临时目录，支持断点续传）
+    async cancelDownload(id) {
       const item = this.getItemById(id)
-      if (item?.status === 2) {
-        await invoke('pause_download', { id });
-        this.updateItem(id, { status: 1 }); // 1 表示暂停
+      if (!item) return;
+      
+      const wasActive = item.status === 2;
+      
+      // 如果任务正在下载，调用后端取消
+      if (item.status === 2) {
+        try {
+          await invoke('cancel_download', { id });
+        } catch (e) {
+          console.error(`取消任务 ${id} 失败:`, e);
+        }
       }
-      if (item?.status === 4) {
-        this.updateItem(id, { status: 1 }); // 1 表示暂停
+      
+      // 更新状态为已取消
+      this.updateItem(id, { status: 0 }); // 0 表示已取消
+      
+      // 如果任务之前是活跃的，尝试启动等待队列中的下一个任务
+      if (wasActive) {
+        await this.tryStartNextDownloads();
       }
-      await this.tryStartNextDownloads(); // 触发队列检查
     },
     
-    async resumeItem(id) {
+    // 继续下载（使用断点续传）
+    async continueDownload(id) {
       // 如果达到最大并发数，设置为等待状态
       if(this.checkMaxDownloads(id)) return;
       
       const item = this.getItemById(id)
-      if (item?.isDownloaded) {
-        await invoke('resume_download', {id})
-        this.updateItem(id, {status: 2})
-      } else {
+      if (item) {
+        // 直接调用 startDownload，后端会自动处理断点续传
         await this.startDownload(id)
       }
     },
     
-    // 移除下载项
+    // 移除下载项并删除临时目录
     async removeItem(id) {
       const item = this.getItemById(id)
       if (!item) return;
       const wasActive = item?.status === 2;
+      
       try {
         // outputDir 从 useSettingStore 中获取
         const settingStore = useSettingStore();
         
+        // delete_download 会删除临时目录和所有下载进度
         await invoke("delete_download", {
           id: id,
           outputDir: settingStore.downloadPath
@@ -159,6 +171,7 @@ export const useDownloadingStore = defineStore('Downloading', {
       this.items = this.items.filter(i => i.id !== id);
       this.selectedItems = this.selectedItems.filter(i => i !== id);
       this.adjustCurrentPageAfterRemove()
+      
       if (wasActive) {
         await this.tryStartNextDownloads();
       }
@@ -280,7 +293,7 @@ export const useDownloadingStore = defineStore('Downloading', {
           id: item.id,
           url: item.url,
           name: item.title,
-          outputDir: settingStore.downloadPath,
+          outputDir: item.downloadPath,
           threadCount: settingStore.threadCount,
         });
       }
@@ -300,18 +313,12 @@ export const useDownloadingStore = defineStore('Downloading', {
       
       // 找到前 N 个等待中的任务
       const waitingTasks = this.items
-        .filter(item => item.status === 4)
+        .filter(item => item.status === 1)
         .slice(0, availableSlots);
       
       // 启动这些任务
       for (const task of waitingTasks) {
-        const item = this.getItemById(task.id)
-        if (item?.isDownloaded) {
-          await invoke('resume_download', {id: task.id})
-          this.updateItem(task.id, {isDownloaded: true, status: 2})
-        } else {
-          await this.startDownload(task.id)
-        }
+        await this.startDownload(task.id)
       }
     },
   },

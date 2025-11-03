@@ -51,20 +51,25 @@ const handleCheckboxChange = (checked) => {
   emit('select', props.id, checked);
 };
 
-const pauseTask = async () => {
-  await downloadingStore.pauseItem(props.id)
-  message.success("暂停成功")
+// 取消下载（保留临时目录）
+const cancelTask = async () => {
+  await downloadingStore.cancelDownload(props.id)
+  message.success("已取消")
 }
 
-const resumeTask = async () => {
-  await downloadingStore.resumeItem(props.id)
+// 继续下载（断点续传）
+const continueTask = () => {
   message.success("开始下载")
+  downloadingStore.continueDownload(props.id)
 }
 
-const startTask = async () => {
-  await downloadingStore.startDownload(props.id)
+// 开始下载
+const startTask = () => {
+  message.success("开始下载")
+  downloadingStore.startDownload(props.id)
 }
 
+// 删除任务（清理临时目录）
 const deleteTask = async () => {
   if (props.isMerge && props.status !== 3) {
     await downloadedStore.removeItem(props.id)
@@ -83,9 +88,11 @@ const deleteTask = async () => {
     <div class="info-wrap">
       <div class="item-top">
         <div class="title text-ellipsis">{{ title }}</div>
+        <!-- 下载中：显示取消按钮 -->
         <div class="operation-wrap" v-if="status === 2">
-          <span class="opera-btn" @click="pauseTask">暂停</span>
+          <span class="opera-btn" @click="cancelTask">取消</span>
         </div>
+        <!-- 其他状态：显示删除、继续下载等按钮 -->
         <div class="operation-wrap" v-else>
           <n-popconfirm
               positive-text="确认"
@@ -97,9 +104,12 @@ const deleteTask = async () => {
             </template>
             你确认要删除吗？
           </n-popconfirm>
-          <span class="opera-btn" v-if="!isMerge&&isDownloaded&&status!==4" @click="resumeTask">恢复下载</span>
-          <span class="opera-btn" v-if="!isMerge&&!isDownloaded&&status!==4" @click="startTask">开始下载</span>
-          <span class="opera-btn" v-if="status===4" @click="pauseTask">取消等待</span>
+          <!-- 已取消或已下载：显示继续下载 -->
+          <span class="opera-btn" v-if="!isMerge&&isDownloaded&&status===0" @click="continueTask">继续下载</span>
+          <!-- 未下载过：显示开始下载 -->
+          <span class="opera-btn" v-if="!isMerge&&!isDownloaded&&status!==1" @click="startTask">开始下载</span>
+          <!-- 等待中：显示取消等待 -->
+          <span class="opera-btn" v-if="status===1" @click="cancelTask">取消等待</span>
         </div>
       </div>
       <div class="progress-wrap" v-if="!isMerge&&isDownloaded">
@@ -112,9 +122,9 @@ const deleteTask = async () => {
               processing
           />
         <div class="progress-value">{{ progress }}%</div>
-        <div class="speed tail" v-if="status === 1">下载暂停</div>
+        <div class="speed tail" v-if="status === 0">已取消</div>
         <div class="speed tail" v-else-if="status === 2">{{ speed }}</div>
-        <div class="speed tail" v-else-if="status === 4">等待下载</div>
+        <div class="speed tail" v-else-if="status === 1">等待下载</div>
       </div>
       <div class="completed-warp" v-else>
         <div class="url-warp text-ellipsis">{{url}}</div>

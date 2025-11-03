@@ -1,62 +1,38 @@
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::{collections::HashMap, sync::Arc};
-use tokio::sync::{Mutex, Notify};
-
-#[derive(Default)]
-pub struct DownloadControl {
-    paused: Arc<AtomicUsize>,    // 0: running, 1: paused
-    cancelled: Arc<AtomicUsize>, // 0: 未取消, 1: 已取消
-    pause_notify: Arc<Notify>,   // 用于暂停和恢复的通知
-}
-
-impl DownloadControl {
-    pub fn new() -> Self {
-        Self {
-            paused: Arc::new(AtomicUsize::new(0)),
-            cancelled: Arc::new(AtomicUsize::new(0)),
-            pause_notify: Arc::new(Notify::new()), // 初始化 Notify
-        }
-    }
-    // 暂停下载
-    pub fn pause(&self) {
-        self.paused.store(1, Ordering::SeqCst);
-    }
-
-    // 恢复下载
-    pub fn resume(&self) {
-        self.paused.store(0, Ordering::SeqCst);
-        self.pause_notify.notify_waiters();
-    }
-
-    // 取消下载
-    pub fn cancel(&self) {
-        self.cancelled.store(1, Ordering::SeqCst);
-        self.pause_notify.notify_waiters(); // 唤醒所有等待任务
-    }
-
-    // 检查暂停状态
-    pub fn is_paused(&self) -> bool {
-        self.paused.load(Ordering::SeqCst) == 1
-    }
-
-    // 检查取消状态
-    pub fn is_cancelled(&self) -> bool {
-        self.cancelled.load(Ordering::SeqCst) == 1
-    }
-
-    // 获取通知器
-    pub fn get_notify(&self) -> Arc<Notify> {
-        Arc::clone(&self.pause_notify)
-    }
-}
+use tokio::sync::Mutex;
 
 /// 运行时下载任务的句柄
 ///
 /// 存储在 DownloadManager 中，用于关联一个 ID 和它的实时控制器。
 pub struct DownloadTask {
-    pub control: Arc<DownloadControl>,
+    pub cancelled: Arc<AtomicBool>,
     pub temp_dir: String,
     // 如果需要，还可以保存下载任务的 JoinHandle
+}
+
+impl DownloadTask {
+    pub fn new(temp_dir: String) -> Self {
+        Self {
+            cancelled: Arc::new(AtomicBool::new(false)),
+            temp_dir,
+        }
+    }
+
+    /// 取消下载
+    pub fn cancel(&self) {
+        self.cancelled.store(true, Ordering::SeqCst);
+    }
+
+    /// 检查取消状态
+    pub fn is_cancelled(&self) -> bool {
+        self.cancelled.load(Ordering::SeqCst)
+    }
+
+    /// 获取取消标志的克隆
+    pub fn get_cancel_flag(&self) -> Arc<AtomicBool> {
+        Arc::clone(&self.cancelled)
+    }
 }
 
 /// 全局下载管理器（运行时）
@@ -65,7 +41,7 @@ pub struct DownloadTask {
 ///
 /// [!] 职责：
 /// 1. 注册新的下载任务（`add_task`）。
-/// 2. 响应Tauri命令，对 *正在运行* 的任务进行操作（暂停、恢复、删除）。
+/// 2. 响应Tauri命令，对 *正在运行* 的任务进行操作（取消并删除）。
 pub struct DownloadManager {
     pub tasks: Mutex<HashMap<String, DownloadTask>>,
 }
@@ -80,44 +56,52 @@ impl DownloadManager {
     /// 添加任务
     pub async fn add_task(&self, id: String, task: DownloadTask) {
         self.tasks.lock().await.insert(id.clone(), task);
-        log::info!("添加下载任务 {}", id);
-    }
-
-    /// 暂停任务
-    pub async fn pause_task(&self, id: &str) {
-        if let Some(task) = self.tasks.lock().await.get(id) {
-            task.control.pause();
-            log::info!("{} 暂停下载任务", id);
-        }
-    }
-
-    /// 恢复任务
-    pub async fn resume_task(&self, id: &str) {
-        if let Some(task) = self.tasks.lock().await.get(id) {
-            task.control.resume();
-            log::info!("{} 恢复下载任务", id);
-        }
+        log::info!("任务 [{}] 已添加", id);
     }
 
     /// 取消任务
+    /// 
+    /// 取消正在运行的下载任务，但保留临时目录以支持断点续传
     pub async fn cancel_task(&self, id: &str) {
-        if let Some(task) = self.tasks.lock().await.get(id) {
-            task.control.cancel();
-            log::info!("{} 取消下载任务", id);
+        let mut tasks = self.tasks.lock().await;
+        if let Some(task) = tasks.remove(id) {
+            // 设置取消标志
+            task.cancel();
+            log::info!("任务 [{}] 已取消", id);
+        } else {
+            log::warn!("任务 [{}] 不存在，无法取消", id);
         }
     }
 
     /// 删除任务并清除临时目录
+    /// 
+    /// 用于完全删除任务，包括取消下载和清理所有临时文件
     pub async fn delete_task(&self, id: &str) -> anyhow::Result<()> {
         let mut tasks = self.tasks.lock().await;
         if let Some(task) = tasks.remove(id) {
-            // 确保任务已终止
-            task.control.cancel();
+            // 设置取消标志
+            task.cancel();
+            
             // 删除临时目录
-            tokio::fs::remove_dir_all(task.temp_dir).await?;
-            log::info!("{} 删除临时下载目录", id);
+            if tokio::fs::try_exists(&task.temp_dir).await.unwrap_or(false) {
+                tokio::fs::remove_dir_all(&task.temp_dir).await?;
+                log::info!("任务 [{}] 临时下载目录: {} 已删除", id, task.temp_dir);
+            }
+            
+            log::info!("任务 [{}] 已删除", id);
+        } else {
+            log::warn!("任务 [{}] 不存在", id);
         }
-        log::info!("删除下载任务 {}", id);
         Ok(())
+    }
+
+    /// 检查任务是否存在
+    pub async fn task_exists(&self, id: &str) -> bool {
+        self.tasks.lock().await.contains_key(id)
+    }
+
+    /// 获取任务的取消标志
+    pub async fn get_cancel_flag(&self, id: &str) -> Option<Arc<AtomicBool>> {
+        self.tasks.lock().await.get(id).map(|t| t.get_cancel_flag())
     }
 }

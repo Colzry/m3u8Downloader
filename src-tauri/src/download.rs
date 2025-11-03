@@ -1,12 +1,11 @@
 //! M3U8 分片下载模块，支持AES-128加密流媒体解密
 //! 核心特性：
 //! - 多线程并发下载
-//! - 暂停/恢复控制
+//! - 取消控制
 //! - 断点续传（基于 manifest 文件，性能更高）
 
 #![allow(deprecated)]
 use crate::download_monitor::{run_monitor_task, DownloadMetrics};
-use crate::download_manager::DownloadControl;
 use crate::merge::merge_files;
 use anyhow::{anyhow, Result};
 use aes::Aes128;
@@ -28,7 +27,7 @@ use std::path::Path;
 use rand::{Rng, SeedableRng};
 use rand::rngs::SmallRng;
 use tauri::AppHandle;
-use tokio::sync::Notify;
+use std::sync::atomic::AtomicBool;
 use tokio::{
     fs,
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
@@ -94,19 +93,19 @@ fn parse_ext_x_key(line: &str) -> Result<(String, String, Option<String>)> {
 pub enum DownloadResult {
     Success(String),   // 成功并且是有效 ts 文件
     Skipped(String),   // 下载成功，但内容无效或空，未写入磁盘
+    Cancelled(String), // 因用户取消而中断下载
 }
 
 /// 下载单个TS文件（支持加密内容解密）
 /// 关键改进点：
 /// 1. 实时更新全局下载字节计数器
-/// 2. 改进的暂停处理机制
+/// 2. 支持取消下载
 async fn download_file(
     client: &Client,
     url: &str,
     output_path: &str,
-    control: &DownloadControl,
+    cancelled: &Arc<AtomicBool>,
     encryption: Option<EncryptionInfo>,
-    pause_notify: Arc<Notify>,     // 暂停通知通道
     metrics: Arc<DownloadMetrics>, // metrics参数
 ) -> Result<DownloadResult> {
     let mut response = client.get(url).send().await?;
@@ -114,24 +113,10 @@ async fn download_file(
 
     while let Some(chunk) = response.chunk().await? {
         // 每次下载数据块后立即检查取消
-        if control.is_cancelled() {
+        if cancelled.load(Ordering::Relaxed) {
             // 主动清理已下载的部分文件
             fs::remove_file(output_path).await.ok();
-            return Ok(DownloadResult::Skipped(url.to_string()));
-        }
-
-        // 处理暂停状态（支持取消中断）
-        while control.is_paused() {
-            // 使用带超时的等待避免永久阻塞
-            tokio::select! {
-                _ = pause_notify.notified() => {},
-                _ = tokio::time::sleep(Duration::from_millis(100)) => {
-                    if control.is_cancelled() {
-                        fs::remove_file(output_path).await.ok();
-                        return Ok(DownloadResult::Skipped(url.to_string()));
-                    }
-                }
-            }
+            return Ok(DownloadResult::Cancelled(url.to_string()));
         }
 
         // 记录下载数据
@@ -187,19 +172,18 @@ async fn download_file(
 /// 2. 更精确的进度计算
 /// 3. 完善的状态报告机制
 pub async fn download_m3u8(
-    id: String,                    // 下载任务唯一标识
-    url: &str,                     // M3U8文件URL
-    name: &str,                    // 输出文件名
-    temp_dir: &str,                // ts文件下载目录
-    output_dir: &str,              // MP4视频输出目录
-    concurrency: usize,            // 并发线程数
-    control: Arc<DownloadControl>, // 下载控制对象
-    app_handle: AppHandle,         // Tauri应用句柄
+    id: String,                       // 下载任务唯一标识
+    url: &str,                        // M3U8文件URL
+    name: &str,                       // 输出文件名
+    temp_dir: &str,                   // ts文件下载目录
+    output_dir: &str,                 // MP4视频输出目录
+    concurrency: usize,               // 并发线程数
+    cancelled: Arc<AtomicBool>,       // 取消标志
+    app_handle: AppHandle,            // Tauri应用句柄
 ) -> Result<()> {
     // 创建输出目录
     fs::create_dir_all(temp_dir).await?;
     let client = Client::new();
-    let pause_notify = control.get_notify();
 
     // 解析M3U8文件内容
     let m3u8_response = client.get(url).send().await?.text().await?;
@@ -361,7 +345,7 @@ pub async fn download_m3u8(
     // --- 步骤 4: 启动速度监控任务 ---
     let speed_handle = run_monitor_task(
         id.clone(),
-        Arc::clone(&control),
+        Arc::clone(&cancelled),
         Arc::clone(&metrics),
         app_handle.clone(),
     ).await;
@@ -383,8 +367,7 @@ pub async fn download_m3u8(
         let client = client.clone();
         let ts_files = Arc::clone(&ts_files);
         let semaphore = Arc::clone(&semaphore);
-        let control = Arc::clone(&control);
-        let pause_notify = Arc::clone(&pause_notify);
+        let cancelled = Arc::clone(&cancelled);
         let metrics = Arc::clone(&metrics);
         let manifest_writer = Arc::clone(&manifest_writer);
 
@@ -393,16 +376,15 @@ pub async fn download_m3u8(
 
             const MAX_RETRIES: usize = 15;
             for attempt in 1..=MAX_RETRIES {
-                if control.is_cancelled() {
+                if cancelled.load(Ordering::Relaxed) {
                     return Ok::<(), anyhow::Error>(());
                 }
                 let result = download_file(
                     &client,
                     &ts_url,
                     &filename,
-                    &control,
+                    &cancelled,
                     encryption.clone(),
-                    pause_notify.clone(),
                     metrics.clone(),
                 )
                     .await;
@@ -414,6 +396,7 @@ pub async fn download_m3u8(
                         if let Some(relative_name) = Path::new(&f).file_name().and_then(|s| s.to_str()) {
                             let mut writer = manifest_writer.lock().await;
                             writer.write_all(format!("{}\n", relative_name).as_bytes()).await?;
+                            writer.flush().await?; // 立即刷新缓冲区，确保数据持久化
                         }
 
                         metrics.completed_chunks.fetch_add(1, Ordering::Relaxed);
@@ -421,7 +404,11 @@ pub async fn download_m3u8(
                         return Ok(());
                     }
                     Ok(DownloadResult::Skipped(f)) => {
-                        log::warn!("🗑️ 分片 [{}] 已被跳过，不再重试", f);
+                        log::warn!("🗑️ 分片 [{}] 内容无效，已跳过", f);
+                        return Ok(());
+                    }
+                    Ok(DownloadResult::Cancelled(f)) => {
+                        log::debug!("⏹️ 分片 [{}] 因取消而中断", f);
                         return Ok(());
                     }
                     Err(e) => {
@@ -442,7 +429,7 @@ pub async fn download_m3u8(
                             tokio::time::sleep(total_delay).await;
                         } else {
                             log::error!("❌ 分片 [{}] 所有重试失败: {:?}, 尝试取消任务", filename, e);
-                            control.cancel(); // 触发取消
+                            cancelled.store(true, Ordering::SeqCst); // 触发取消
                         }
                     }
                 }
@@ -453,7 +440,6 @@ pub async fn download_m3u8(
     }
 
     // --- 步骤 6: 等待所有下载任务完成 ---
-    // (逻辑微调，以处理下载失败)
     for handle in handles {
         handle.await??;
     }
@@ -461,31 +447,38 @@ pub async fn download_m3u8(
     // 检查是否所有分片都已就绪（包括已存在和刚下载的）
     let final_ts_files = Arc::try_unwrap(ts_files).unwrap().into_inner();
     if final_ts_files.len() != total_chunks {
-        log::error!(
-            "任务 [{} {}] 未能集齐所有分片。预期: {}, 实际: {}. 可能已被取消或下载失败。",
-            id,
-            name,
-            total_chunks,
-            final_ts_files.len()
-        );
-
-        if !control.is_cancelled() {
-            // 如果不是用户主动取消，而是下载失败，则强制取消
-            control.cancel();
+        if cancelled.load(Ordering::Relaxed) {
+            // 用户主动取消
+            log::info!(
+                "任务 [{}] 未完成下载。预期: {}, 已完成: {}. 任务已被取消。",
+                id,
+                total_chunks,
+                final_ts_files.len()
+            );
+        } else {
+            // 下载失败
+            log::error!(
+                "任务 [{}] 未能集齐所有分片。预期: {}, 实际: {}. 下载失败。",
+                id,
+                total_chunks,
+                final_ts_files.len()
+            );
+            // 强制取消
+            cancelled.store(true, Ordering::SeqCst);
             // 等待速度监控任务退出
             speed_handle.await?;
             return Err(anyhow::anyhow!("下载失败，部分分片缺失"));
         }
     } else {
-        log::info!("任务 [{} {}] 所有分片均已就绪，准备合并。", id, name);
+        log::info!("任务 [{}] 所有分片均已就绪，准备合并。", id);
     }
 
     // 等待速度监控任务退出
     speed_handle.await?;
 
     // 如果任务被取消，则跳过合并
-    if control.is_cancelled() {
-        log::warn!("任务 [{} {}] 已被取消，跳过合并。", id, name);
+    if cancelled.load(Ordering::Relaxed) {
+        log::warn!("任务 [{}] 已被取消，跳过合并。", id);
         return Ok(());
     }
 
@@ -499,9 +492,6 @@ pub async fn download_m3u8(
         app_handle.clone(),
     )
         .await?;
-
-    // [!] 合并成功后，可以考虑删除清单文件，但保留它也无妨
-    // tokio::fs::remove_file(manifest_path).await.ok();
 
     Ok(())
 }

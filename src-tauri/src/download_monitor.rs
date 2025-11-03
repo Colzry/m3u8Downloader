@@ -1,8 +1,7 @@
 //! 下载监控模块
-//! 负责实时计算下载速度、检查任务状态（暂停/取消）
+//! 负责实时计算下载速度、检查任务状态（取消）
 //! 并通过 Tauri 事件（`download_progress`）向前端报告状态。
 
-use crate::download_manager::DownloadControl;
 use std::collections::VecDeque;
 use std::sync::{
     atomic::{AtomicBool, AtomicUsize, Ordering},
@@ -83,7 +82,7 @@ impl DownloadMetrics {
         }
     }
 
-    /// 获取双维度进度百分比
+    /// 获取进度百分比
     async fn get_progress(&self) -> f64 {
         if self.total_chunks == 0 {
             0.0
@@ -103,7 +102,7 @@ impl DownloadMetrics {
 /// 这是一个独立的 Tokio 任务，持续监听下载指标并向前端发送事件。
 pub async fn run_monitor_task(
     id: String,
-    control: Arc<DownloadControl>,
+    cancelled: Arc<AtomicBool>,
     metrics: Arc<DownloadMetrics>,
     app_handle: AppHandle,
 ) -> tokio::task::JoinHandle<()> {
@@ -112,21 +111,9 @@ pub async fn run_monitor_task(
         let mut interval = tokio::time::interval(Duration::from_millis(200));
         interval.tick().await;
         let mut last_send_time = Instant::now();
-        let mut needs_reset = false;
 
         let mut last_data: Option<serde_json::Value> = None;
         loop {
-            // 暂停时进入等待状态
-            while control.is_paused() {
-                control.get_notify().notified().await;
-                needs_reset = true;
-            }
-
-            // 恢复后重置定时器
-            if needs_reset {
-                interval.reset();
-                needs_reset = false;
-            }
             // 等待下一个周期
             interval.tick().await;
 
@@ -137,26 +124,24 @@ pub async fn run_monitor_task(
             last_send_time = now;
 
             // --- 获取并构建状态数据 ---
-            let is_cancelled = control.is_cancelled();
-            let is_paused = control.is_paused();
+            let is_cancelled = cancelled.load(Ordering::Relaxed);
             let (speed_val, speed_unit) = metrics.get_windowed_speed().await;
             let progress = metrics.get_progress().await;
 
             let chunks_completed = metrics.completed_chunks.load(Ordering::Relaxed);
             let chunks_total = metrics.total_chunks;
 
-            // 如果所有分片都已完成，则状态为“正在合并”
+            // 如果所有分片都已完成，则状态为"正在合并"
             let is_merge = chunks_total > 0 && chunks_completed == chunks_total;
 
             // 构建状态元数据
-            let status_info = match (is_cancelled, is_paused, is_merge) {
-                (true, _, _) => (0, "已取消"),          // cancelled
-                (false, true, _) => (1, "已暂停"),      // paused
-                (false, false, false) => (2, "下载中"), // downloading
-                (_, _, true) => (3, "正在合并"),        // merge
+            let status_info = match (is_cancelled, is_merge) {
+                (true, _) => (0, "已取消"),          // cancelled
+                (false, false) => (2, "下载中"),     // downloading
+                (false, true) => (3, "正在合并"),    // merge
             };
 
-            /* status 0-已取消 1-已暂停 2-下载中 3-合并中 4-等待中 */
+            /* status 0-已取消 1-等待中 2-下载中 3-合并中 */
 
             // 生成当前事件数据
             let current_data = json!({
@@ -182,7 +167,7 @@ pub async fn run_monitor_task(
                 last_data = Some(current_data);
             }
 
-            // 退出条件
+            // 退出条件：任务被取消或进入合并状态
             if is_cancelled || is_merge {
                 break;
             }

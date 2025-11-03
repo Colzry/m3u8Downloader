@@ -107,14 +107,14 @@ const handleDeleteSelected = async () => {
   message.success("删除成功")
 };
 
-// 暂停选择的下载
-const handlePauseSelected = async () => {
+// 取消选择的下载
+const handleCancelSelected = async () => {
   if (handleSelectedNull()) return;
   for (const id of downloadingStore.selectedItems) {
-    downloadingStore.pauseItem(id).then(() => {})
+    downloadingStore.cancelDownload(id).then(() => {})
   }
   downloadingStore.clearSelectedItems()
-  message.success("暂停成功")
+  message.success("已取消")
 }
 
 // 下载选中的项
@@ -123,7 +123,7 @@ const handleDownloadSelected = async () => {
   // 将下载项加入等待任务中
   for (const id of downloadingStore.selectedItems) {
     if (downloadingStore.getItemById(id)?.status === 2) continue;
-    downloadingStore.updateItem(id, { status: 4 }); // 4 表示等待中
+    downloadingStore.updateItem(id, { status: 1 }); // 1 表示等待中
   }
   // 清除选中列表
   downloadingStore.clearSelectedItems()
@@ -152,6 +152,7 @@ const addToListHandle = throttle(async () => {
       isDownloaded: false,
       status: 0,
       url: formValue.videoUrl,
+      downloadPath: settingStore.downloadPath,
     });
 
     message.success("添加成功");
@@ -176,7 +177,7 @@ const nowDownloadHandle = async () => {
   if (id) {
     downloadingStore.startDownload(id).catch(
         err => {
-          downloadingStore.pauseItem(id);
+          downloadingStore.cancelDownload(id);
           notification.error({
             content: downloadingStore.getItemById(id).title + '下载失败',
             meta: err,
@@ -265,13 +266,13 @@ onUnmounted(() => {
             </n-popconfirm>
             <n-popconfirm
                 positive-text="确认"
-                negative-text="取消"
-                @positive-click="handlePauseSelected"
+                negative-text="算了"
+                @positive-click="handleCancelSelected"
             >
               <template #trigger>
-                <n-button size="small" type="info" ghost>暂停</n-button>
+                <n-button size="small" type="warning" ghost>取消</n-button>
               </template>
-              你确认要暂停吗？
+              你确认要取消选中的下载吗？
             </n-popconfirm>
             <n-popconfirm
                 positive-text="确认"

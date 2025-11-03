@@ -1,8 +1,7 @@
 use crate::download::download_m3u8;
-use crate::download_manager::{DownloadControl, DownloadManager, DownloadTask};
+use crate::download_manager::{DownloadManager, DownloadTask};
 use anyhow::Result;
 use std::fs;
-use std::sync::Arc;
 use sysinfo::{System, SystemExt};
 use tauri::{AppHandle, Emitter};
 use tauri_plugin_store::StoreExt;
@@ -22,99 +21,122 @@ pub async fn start_download(
     log::info!("ID: {}, URL: {}, Name: {} - 开始下载", id, url, name);
     println!("ID: {}, URL: {}, Name: {}", id, url, name);
 
-    // 创建临时目录
-    fs::create_dir_all(&temp_dir).map_err(|e| format!("创建临时目录失败: {}", e))?;
-    app_handle
-        .emit(
-            "create_temp_directory",
-            serde_json::json!({
-                            "id": id,
-                            "isCreatedTempDir": true,
-                            "message": "已创建临时下载目录",
-            }),
-        )
-        .ok();
-    log::info!("{} 创建临时目录: {}", id, &temp_dir);
-    let control = Arc::new(DownloadControl::default());
-    // 将任务信息添加到全局管理器
+    // 检查临时目录是否存在，不存在则创建
+    let temp_dir_exists = tokio::fs::try_exists(&temp_dir).await.unwrap_or(false);
+    if !temp_dir_exists {
+        fs::create_dir_all(&temp_dir).map_err(|e| format!("创建临时目录失败: {}", e))?;
+        app_handle
+            .emit(
+                "create_temp_directory",
+                serde_json::json!({
+                                "id": id,
+                                "isCreatedTempDir": true,
+                                "message": "已创建临时下载目录",
+                }),
+            )
+            .ok();
+        log::info!("任务 [{}] 已创建临时目录: {}", id, &temp_dir);
+    } else {
+        log::info!("任务 [{}] 临时目录已存在，继续下载: {}", id, &temp_dir);
+    }
+    
+    // 创建任务并添加到管理器
+    let task = DownloadTask::new(temp_dir.clone());
+    let cancelled = task.get_cancel_flag();
+    
     manager
-        .add_task(
-            id.clone(),
-            DownloadTask {
-                control: control.clone(),
-                temp_dir: temp_dir.clone(),
-            },
-        )
+        .add_task(id.clone(), task)
         .await;
 
     // 开始下载 TS 文件到临时目录
-    download_m3u8(
+    let download_result = download_m3u8(
         id.clone(),
         &url,
         &name,
         &temp_dir,
         &output_dir,
         thread_count,
-        control.clone(),
+        cancelled.clone(),
         app_handle.clone(),
     )
-    .await
-    .map_err(|e| e.to_string())?;
+    .await;
 
-    // 删除临时目录
-    manager
-        .delete_task(&id)
-        .await
-        .expect("临时下载目录删除失败");
+    // 下载完成后，从管理器中移除任务
+    if let Err(e) = &download_result {
+        log::error!("{} 下载失败: {}", id, e);
+        // 下载失败，从管理器移除任务（保留临时目录用于断点续传）
+        manager.cancel_task(&id).await;
+        return Err(e.to_string());
+    }
 
-    log::info!("{} 下载完成", id);
+    // 检查是否是因为取消而结束的
+    // 如果是取消，任务已经从管理器中移除了，不需要再次删除
+    // 如果是正常完成，需要删除临时目录
+    if !cancelled.load(std::sync::atomic::Ordering::Relaxed) {
+        // 下载正常完成（未取消），删除任务并清理临时目录
+        manager
+            .delete_task(&id)
+            .await
+            .map_err(|e| format!("删除临时目录失败: {}", e))?;
+    }
+
+    // 根据取消标志输出不同的日志
+    if cancelled.load(std::sync::atomic::Ordering::Relaxed) {
+        log::info!("任务 [{}] 已取消下载", id);
+    } else {
+        log::info!("任务 [{}] 已下载完成", id);
+    }
 
     Ok(())
 }
 
-/// 暂停下载
+/// 取消下载任务
+/// 
+/// 1. 取消正在运行的下载任务
+/// 2. 从管理器中移除任务
+/// 3. 保留临时目录以支持断点续传
 #[tauri::command]
-pub async fn pause_download(
+pub async fn cancel_download(
     id: String,
     manager: tauri::State<'_, DownloadManager>,
 ) -> Result<(), String> {
-    manager.pause_task(&id).await;
+    log::info!("取消下载任务: {} (保留临时目录)", id);
+    manager.cancel_task(&id).await;
     Ok(())
 }
 
-/// 恢复下载
-#[tauri::command]
-pub async fn resume_download(
-    id: String,
-    manager: tauri::State<'_, DownloadManager>,
-) -> Result<(), String> {
-    manager.resume_task(&id).await;
-    Ok(())
-}
-
-/// 删除下载
+/// 删除下载任务并清理临时目录
+/// 
+/// 1. 取消正在运行的任务（如果存在）
+/// 2. 从管理器中移除任务
+/// 3. 删除临时目录和所有下载进度
 #[tauri::command]
 pub async fn delete_download(
     id: String,
     output_dir: String,
     manager: tauri::State<'_, DownloadManager>,
 ) -> Result<(), String> {
-    // 1. 尝试从管理器中移除（如果任务正在运行）
-    //    我们将调用 manager.delete_task，它会停止任务并删除目录。
-    //    如果任务不存在（例如重启后），它会返回 Ok(()) (根据 download_manager.rs 实现)。
-    //    [!] 假设 delete_task 找不到时不会返回 Err
-    let _ = manager.delete_task(&id).await;
-
-    // 2. 无论 manager 做了什么，我们都再次尝试删除临时目录
-    //    这确保了即使在重启后，目录也会被删除。
-    let temp_dir = format!("{}/temp_{}", output_dir, id);
-
-    log::info!("(delete_download) 正在清理临时目录: {}", temp_dir);
-
-    // tokio::fs::remove_dir_all 会在目录不存在时返回 Ok，这是幂等的
-    tokio::fs::remove_dir_all(&temp_dir)
-        .await
-        .map_err(|e| format!("删除临时目录失败 ({}): {}", temp_dir, e))?;
+    log::info!("删除下载任务: {}", id);
+    
+    // 1. 先检查任务是否在管理器中
+    let task_exists = manager.task_exists(&id).await;
+    
+    if task_exists {
+        // 任务正在运行，调用 delete_task（会取消并删除临时目录）
+        manager.delete_task(&id).await
+            .map_err(|e| format!("删除任务失败: {}", e))?;
+    } else {
+        // 任务不在管理器中（已完成或未开始），直接删除临时目录
+        log::info!("任务不在管理器中，直接删除临时目录");
+        let temp_dir = format!("{}/temp_{}", output_dir, id);
+        
+        if tokio::fs::try_exists(&temp_dir).await.unwrap_or(false) {
+            tokio::fs::remove_dir_all(&temp_dir)
+                .await
+                .map_err(|e| format!("删除临时目录失败 ({}): {}", temp_dir, e))?;
+            log::info!("已删除临时目录: {}", temp_dir);
+        }
+    }
 
     Ok(())
 }

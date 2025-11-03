@@ -1,5 +1,5 @@
 use crate::commands::{
-    delete_download, delete_file, get_cpu_info, pause_download, resume_download,
+    cancel_download, delete_download, delete_file, get_cpu_info,
     set_minimize_on_close, start_download,
 };
 use crate::download_manager::DownloadManager;
@@ -81,8 +81,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             start_download,
-            pause_download,
-            resume_download,
+            cancel_download,
             delete_download,
             get_cpu_info,
             delete_file,
