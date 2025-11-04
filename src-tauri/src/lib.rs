@@ -1,6 +1,6 @@
 use crate::commands::{
-    cancel_download, delete_download, delete_file, get_cpu_info,
-    set_minimize_on_close, start_download,
+    cancel_download, delete_download, delete_file, get_cpu_info, set_minimize_on_close,
+    start_download,
 };
 use crate::download_manager::DownloadManager;
 use tauri::tray::{MouseButton, TrayIconEvent};
@@ -9,9 +9,9 @@ use tauri_plugin_store::StoreExt;
 pub mod commands;
 mod download;
 mod download_manager;
-mod merge;
-mod logger;
 mod download_monitor;
+mod logger;
+mod merge;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -72,7 +72,18 @@ pub fn run() {
                         .unwrap_or(true)
                     {
                         api.prevent_close(); // 阻止默认关闭行为
-                        main_window.hide().unwrap(); // 隐藏窗口
+                        
+                        // 在 Linux 上，只最小化，不隐藏，避免窗口控件失效
+                        #[cfg(target_os = "linux")]
+                        {
+                            let _ = main_window.minimize(); // 最小化即可
+                        }
+
+                        // 在 Windows/macOS 上，可以 hide（或 minimize + hide）
+                        #[cfg(not(target_os = "linux"))]
+                        {
+                            let _ = main_window.hide();
+                        }
                     }
                 }
             });
@@ -89,6 +100,12 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+fn restore_window(window: &tauri::WebviewWindow) {
+    let _ = window.unminimize();
+    let _ = window.show();
+    let _ = window.set_focus();
 }
 
 fn enable_tray(app: &mut tauri::App) -> tauri::Result<()> {
@@ -126,8 +143,7 @@ fn enable_tray(app: &mut tauri::App) -> tauri::Result<()> {
             } => {
                 let app = tray.app_handle();
                 if let Some(window) = app.get_webview_window("main") {
-                    let _ = window.show();
-                    let _ = window.set_focus();
+                    restore_window(&window);
                 }
             }
             _ => {}
@@ -135,15 +151,13 @@ fn enable_tray(app: &mut tauri::App) -> tauri::Result<()> {
         .on_menu_event(|app, event| match event.id.as_ref() {
             "open" => {
                 let window = app.get_webview_window("main").unwrap();
-                window.show().unwrap();
-                window.set_focus().unwrap();
+                restore_window(&window);
             }
             "settings" => {
                 // windows failed to open second window, issue: https://github.com/tauri-apps/tauri/issues/11144 https://github.com/tauri-apps/tauri/issues/8196
                 let _ = app.emit("open_settings", "");
                 let window = app.get_webview_window("main").unwrap();
-                window.show().unwrap();
-                window.set_focus().unwrap();
+                restore_window(&window);
             }
             "quit" => {
                 app.exit(0);
