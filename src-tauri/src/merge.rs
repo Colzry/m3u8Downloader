@@ -2,7 +2,6 @@ use std::path::PathBuf;
 use anyhow::Result;
 use tauri::{AppHandle, Emitter, Manager};
 use tauri::path::BaseDirectory;
-use tokio::fs;
 use tokio::fs::File;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
@@ -29,25 +28,31 @@ pub async fn resolve_ffmpeg_path_and_prepare(handle: &AppHandle) -> Result<PathB
         .resolve(resource_name, BaseDirectory::Resource)
         .map_err(|e| anyhow::anyhow!("无法解析 ffmpeg 资源路径 ({}): {}", resource_name, e))?;
 
-    // 3. 确定目标路径 (使用 AppData 目录)
-    let app_data_dir = handle.path().app_data_dir()
-        .map_err(|e| anyhow::anyhow!("无法获取 AppData 目录: {}", e))?;
+    // 3. Windows 直接返回资源路径，不需要复制
+    #[cfg(target_os = "windows")]
+    {
+        return Ok(resource_path);
+    }
 
-    // 确保目录存在
-    fs::create_dir_all(&app_data_dir).await?;
+    // 4. Linux/macOS: 复制到 AppData 目录并设置执行权限
+    #[cfg(not(target_os = "windows"))]
+    {
+        let app_data_dir = handle.path().app_data_dir()
+            .map_err(|e| anyhow::anyhow!("无法获取 AppData 目录: {}", e))?;
 
-    let target_name = resource_path.file_name().ok_or_else(|| anyhow::anyhow!("无效的 ffmpeg 文件名"))?;
-    let target_path = app_data_dir.join(target_name);
+        // 确保目录存在
+        fs::create_dir_all(&app_data_dir).await?;
 
-    // 4. 复制文件（仅当目标文件不存在时才复制和设置权限）
-    if !target_path.exists() {
-        // 使用 tokio::fs::copy 进行异步复制
-        fs::copy(&resource_path, &target_path).await?;
-        log::info!("已将 ffmpeg 资源文件复制到: {}", target_path.display());
+        let target_name = resource_path.file_name().ok_or_else(|| anyhow::anyhow!("无效的 ffmpeg 文件名"))?;
+        let target_path = app_data_dir.join(target_name);
 
-        // 5. 设置 Linux/macOS 执行权限
-        #[cfg(not(target_os = "windows"))]
-        {
+        // 复制文件（仅当目标文件不存在时才复制和设置权限）
+        if !target_path.exists() {
+            // 使用 tokio::fs::copy 进行异步复制
+            tokio::fs::copy(&resource_path, &target_path).await?;
+            log::info!("已将 ffmpeg 资源文件复制到: {}", target_path.display());
+
+            // 设置 Linux/macOS 执行权限
             use std::os::unix::fs::PermissionsExt;
             // 设置权限为 rwxr-xr-x (0o755)
             let perms = std::fs::Permissions::from_mode(0o755);
@@ -56,9 +61,9 @@ pub async fn resolve_ffmpeg_path_and_prepare(handle: &AppHandle) -> Result<PathB
                 .map_err(|e| anyhow::anyhow!("无法为 ffmpeg 设置执行权限 ({}): {}", target_path.display(), e))?;
             log::info!("已设置 ffmpeg 执行权限: {}", target_path.display());
         }
-    }
 
-    Ok(target_path)
+        Ok(target_path)
+    }
 }
 
 // 下载的ts文件排序
@@ -118,18 +123,7 @@ pub async fn merge_files(
         return Err(anyhow::anyhow!("ffmpeg binary not found at {}", ffmpeg));
     }
 
-    // ----------------------------------------------------
-    // 设置 Linux/macOS 执行权限 (如果不是 Windows)
-    // ----------------------------------------------------
-    #[cfg(not(target_os = "windows"))]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        // 设置权限为 rwxr-xr-x (0o755)
-        let perms = std::fs::Permissions::from_mode(0o755);
-        std::fs::set_permissions(&ffmpeg_path, perms)
-            .map_err(|e| anyhow::anyhow!("无法为 ffmpeg 设置执行权限 ({}): {}", ffmpeg, e))?;
-        log::info!("已设置 ffmpeg 执行权限: {}", ffmpeg);
-    }
+
 
     // 创建 Command
     #[cfg(target_os = "windows")]
