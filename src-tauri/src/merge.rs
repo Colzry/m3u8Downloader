@@ -37,7 +37,7 @@ pub async fn resolve_ffmpeg_path_and_prepare(handle: &AppHandle) -> Result<PathB
             .map_err(|e| anyhow::anyhow!("无法获取 AppData 目录: {}", e))?;
 
         // 确保目录存在
-        fs::create_dir_all(&app_data_dir).await?;
+        tokio::fs::create_dir_all(&app_data_dir).await?;
 
         let target_name = resource_path.file_name().ok_or_else(|| anyhow::anyhow!("无效的 ffmpeg 文件名"))?;
         let target_path = app_data_dir.join(target_name);
