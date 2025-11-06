@@ -12,7 +12,7 @@
   },
   "bundle": {
     "resources": [
-      "bin/linux/ffmpeg"
+      "bin/ffmpeg"
     ]
   }
 }

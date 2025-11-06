@@ -1,7 +1,7 @@
 {
   "bundle": {
     "resources": [
-      "bin/darwin/x64/ffmpeg"
+      "bin/ffmpeg"
     ]
   }
 }

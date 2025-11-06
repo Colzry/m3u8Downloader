@@ -6,7 +6,7 @@
   "build": {
     "beforeDevCommand": "yarn dev",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "yarn build",
+    "beforeBuildCommand": "yarn build && node src-tauri/scripts/download-ffmpeg.cjs",
     "frontendDist": "../dist"
   },
   "app": {

@@ -10,13 +10,9 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 pub async fn resolve_ffmpeg_path_and_prepare(handle: &AppHandle) -> Result<PathBuf> {
     // 1. 根据平台和架构确定资源名称
     #[cfg(target_os = "windows")]
-    let resource_name = "bin/win/ffmpeg.exe";
-    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
-    let resource_name = "bin/linux/ffmpeg";
-    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-    let resource_name = "bin/darwin/arm64/ffmpeg";
-    #[cfg(all(target_os = "macos", target_arch = "x86_64"))]
-    let resource_name = "bin/darwin/x64/ffmpeg";
+    let resource_name = "bin/ffmpeg.exe";
+    #[cfg(not(target_os = "windows"))]
+    let resource_name = "bin/ffmpeg";
 
     // 如果没有匹配的平台/架构配置，则抛出错误
     #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
