@@ -39,7 +39,7 @@ const rules = {
           });
 
           if (!result.valid) {
-            reject(new Error('此m3u8地址无效'))
+            reject(result.message)
           }
           resolve()
         } catch (e) {
