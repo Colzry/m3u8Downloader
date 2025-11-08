@@ -1,11 +1,3 @@
-export const M3U8_VALID_CONTENT_TYPES = [
-  'application/vnd.apple.mpegurl',
-  'application/x-mpegurl',
-  'audio/mpegurl',
-  'application/octet-stream',
-  'text/plain'
-];
-
 export const validateM3u8Url = async (url, options = {}) => {
   const defaultOptions = {
     checkContent: true,
@@ -53,16 +45,7 @@ export const validateM3u8Url = async (url, options = {}) => {
       throw new Error(`服务器返回状态：${headResponse.status}`);
     }
     
-    // Content-Type验证
-    const receivedType = (resultTemplate.details.contentType || '').toLowerCase();
-    const isValidType = M3U8_VALID_CONTENT_TYPES.some(validType =>
-      receivedType.includes(validType.toLowerCase())
-    );
-    if (!isValidType) {
-      throw new Error('Content-Type不符合M3U8格式要求');
-    }
-    
-    // 内容验证（可选）
+    // 内容验证
     if (defaultOptions.checkContent) {
       const getResponse = await fetch(url, { signal: controller.signal });
       const text = await getResponse.text();
