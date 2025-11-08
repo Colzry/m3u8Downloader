@@ -1,4 +1,4 @@
-use crate::download::download_m3u8;
+use crate::download::{download_m3u8, DownloadOptions};
 use crate::download_manager::{DownloadManager, DownloadTask};
 use anyhow::Result;
 use std::fs;
@@ -15,6 +15,7 @@ pub async fn start_download(
     thread_count: usize,
     app_handle: AppHandle,
     manager: tauri::State<'_, DownloadManager>, // 注入全局管理器
+    headers: Option<std::collections::HashMap<String, String>>, // 自定义请求头
 ) -> Result<(), String> {
     let temp_dir = format!("{}/temp_{}", output_dir, id);
 
@@ -48,6 +49,12 @@ pub async fn start_download(
         .add_task(id.clone(), task)
         .await;
 
+    // 创建下载选项
+    let mut options = DownloadOptions::new();
+    if let Some(headers_map) = headers {
+        options.headers = headers_map;
+    }
+    
     // 开始下载 TS 文件到临时目录
     let download_result = download_m3u8(
         id.clone(),
@@ -58,6 +65,7 @@ pub async fn start_download(
         thread_count,
         cancelled.clone(),
         app_handle.clone(),
+        options,
     )
     .await;
 

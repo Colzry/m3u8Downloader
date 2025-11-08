@@ -290,12 +290,13 @@ export const useDownloadingStore = defineStore('Downloading', {
       if (item) {
         this.updateItem(item.id, { isDownloaded: true, status: 2 });
         await invoke("start_download", {
-          id: item.id,
-          url: item.url,
-          name: item.title,
-          outputDir: item.downloadPath,
-          threadCount: settingStore.threadCount,
-        });
+            id: item.id,
+            url: item.url,
+            name: item.title,
+            outputDir: item.downloadPath,
+            threadCount: settingStore.threadCount,
+            headers: item.headers || {}
+          });
       }
     },
     

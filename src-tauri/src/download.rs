@@ -87,9 +87,23 @@ fn parse_ext_x_key(line: &str) -> Result<(String, String, Option<String>)> {
     Ok((method, uri, iv))
 }
 
+use std::collections::HashMap;
+use reqwest::header::{HeaderName, HeaderValue};
 
-/// 下载结果状态枚举
+/// 自定义下载请求头选项
 #[derive(Debug, Clone)]
+pub struct DownloadOptions {
+    pub headers: HashMap<String, String>,
+}
+
+impl DownloadOptions {
+    pub fn new() -> Self {
+        Self {
+            headers: HashMap::new(),
+        }
+    }
+}
+
 pub enum DownloadResult {
     Success(String),   // 成功并且是有效 ts 文件
     Skipped(String),   // 下载成功，但内容无效或空，未写入磁盘
@@ -107,8 +121,26 @@ async fn download_file(
     cancelled: &Arc<AtomicBool>,
     encryption: Option<EncryptionInfo>,
     metrics: Arc<DownloadMetrics>, // metrics参数
+    headers: &HashMap<String, String>, // 自定义请求头
 ) -> Result<DownloadResult> {
-    let mut response = client.get(url).send().await?;
+    // 构建带自定义请求头的请求
+    let mut request = client.get(url);
+    for (key, value) in headers {
+        // 尝试添加自定义请求头，如果格式不正确则跳过
+        match (HeaderName::from_bytes(key.as_bytes()), HeaderValue::from_str(value)) {
+            (Ok(header_name), Ok(header_value)) => {
+                request = request.header(header_name, header_value);
+            }
+            (Err(_), _) => {
+                log::warn!("无效的请求头名称，已跳过: {}", key);
+            }
+            (_, Err(_)) => {
+                log::warn!("无效的请求头值，已跳过: {}={}", key, value);
+            }
+        }
+    }
+    
+    let mut response = request.send().await?;
     let mut buffer = Vec::new();
 
     while let Some(chunk) = response.chunk().await? {
@@ -180,6 +212,7 @@ pub async fn download_m3u8(
     concurrency: usize,               // 并发线程数
     cancelled: Arc<AtomicBool>,       // 取消标志
     app_handle: AppHandle,            // Tauri应用句柄
+    options: DownloadOptions,         // 下载选项（包含自定义headers等）
 ) -> Result<()> {
     // 创建输出目录
     fs::create_dir_all(temp_dir).await?;
@@ -304,45 +337,7 @@ pub async fn download_m3u8(
         pending_downloads.len()
     );
 
-
-    // --- 步骤 3: 预获取 待下载 分片的大小 ---
-    let pre_semaphore = Arc::new(Semaphore::new(concurrency));
-    let mut pre_handles: Vec<tokio::task::JoinHandle<()>> = Vec::new();
-
-    // 只对需要下载的分片执行 HEAD 请求
-    for (ts_url, _, _) in &pending_downloads {
-        let client = client.clone();
-        let metrics = metrics.clone();
-        let ts_url = ts_url.clone();
-        let permit = pre_semaphore.clone();
-
-        pre_handles.push(tokio::spawn(async move {
-            let _permit = match permit.acquire().await {
-                Ok(p) => p,
-                Err(_) => return, // Semaphore
-            };
-
-            let _ = client
-                .head(&ts_url)
-                .send()
-                .await
-                .map(|resp| {
-                    resp.headers()
-                        .get("Content-Length")
-                        .and_then(|hv| hv.to_str().ok())
-                        .and_then(|s| s.parse::<usize>().ok())
-                        .map(|size| metrics.update_total_bytes(size))
-                        .unwrap_or_else(|| metrics.mark_total_bytes_invalid());
-                })
-                .map_err(|_| metrics.mark_total_bytes_invalid());
-        }));
-    }
-    // 等待所有预请求完成
-    for handle in pre_handles {
-        handle.await?;
-    }
-
-    // --- 步骤 4: 启动速度监控任务 ---
+    // --- 步骤 3: 启动速度监控任务 ---
     let speed_handle = run_monitor_task(
         id.clone(),
         Arc::clone(&cancelled),
@@ -350,7 +345,7 @@ pub async fn download_m3u8(
         app_handle.clone(),
     ).await;
 
-    // --- 步骤 5: 启动下载任务 (只下载 pending_downloads) ---
+    // --- 步骤 4: 启动下载任务 (只下载 pending_downloads) ---
 
     // 创建一个线程安全的清单文件写入器
     let manifest_writer = Arc::new(Mutex::new(
@@ -370,6 +365,7 @@ pub async fn download_m3u8(
         let cancelled = Arc::clone(&cancelled);
         let metrics = Arc::clone(&metrics);
         let manifest_writer = Arc::clone(&manifest_writer);
+        let headers = options.headers.clone();
 
         handles.push(tokio::spawn(async move {
             let _permit = semaphore.acquire().await?;
@@ -386,6 +382,7 @@ pub async fn download_m3u8(
                     &cancelled,
                     encryption.clone(),
                     metrics.clone(),
+                    &headers,
                 )
                     .await;
 
@@ -439,7 +436,7 @@ pub async fn download_m3u8(
         }));
     }
 
-    // --- 步骤 6: 等待所有下载任务完成 ---
+    // --- 步骤 5: 等待所有下载任务完成 ---
     for handle in handles {
         handle.await??;
     }
@@ -482,7 +479,7 @@ pub async fn download_m3u8(
         return Ok(());
     }
 
-    // --- 步骤 7: 合并 TS 文件为 MP4 ---
+    // --- 步骤 6: 合并 TS 文件为 MP4 ---
     merge_files(
         id.clone(),
         &name,

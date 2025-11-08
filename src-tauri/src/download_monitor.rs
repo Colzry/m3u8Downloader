@@ -21,7 +21,6 @@ pub struct DownloadMetrics {
     pub downloaded_bytes: Arc<AtomicUsize>,
     pub completed_chunks: Arc<AtomicUsize>,
     speed_samples: Arc<Mutex<VecDeque<(Instant, usize)>>>, // 原始采样数据 (Instant, bytes)
-    pub total_bytes_valid: Arc<AtomicBool>, // 是否有总字节数
 }
 
 impl DownloadMetrics {
@@ -31,14 +30,8 @@ impl DownloadMetrics {
             total_bytes: Arc::new(AtomicUsize::new(0)),
             downloaded_bytes: Arc::new(AtomicUsize::new(0)),
             completed_chunks: Arc::new(AtomicUsize::new(0)),
-            speed_samples: Arc::new(Mutex::new(VecDeque::with_capacity(10))),
-            total_bytes_valid: Arc::new(AtomicBool::new(true)),
+            speed_samples: Arc::new(Mutex::new(VecDeque::with_capacity(10)))
         }
-    }
-
-    /// 标记总字节数为无效（用于 HEAD 请求失败时）
-    pub fn mark_total_bytes_invalid(&self) {
-        self.total_bytes_valid.store(false, Ordering::Relaxed);
     }
 
     /// 累加预估的总字节数

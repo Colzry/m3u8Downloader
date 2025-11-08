@@ -5,19 +5,37 @@ import MainWrapper from "@/views/Home/components/MainWrapper.vue";
 import DownloadItem from "@/views/Home/components/DownloadItem.vue";
 import {validateM3u8Url} from "@/utils/m3u8Validator.js";
 import {useMessage, useNotification } from "naive-ui";
-import {openFolder} from "@/utils/fs.js";
-import {throttle} from 'lodash';
-import {ref} from "vue";
-
-const message = useMessage();
+ import {openFolder} from "@/utils/fs.js";
+ import {throttle} from 'lodash';
+ import {ref, reactive, watch} from "vue";
+ 
+ const message = useMessage();
 const notification = useNotification()
 const showModal = ref(false);
 const formRef = ref(null);
 
 const formValue = reactive({
   videoUrl: '',
-  videoName: ''
+  videoName: '',
+  headers: {}
 })
+
+// 处理自定义 Headers 的响应式数据
+const headerEntries = ref([{ key: '', value: '' }]);
+const userAgentOptions = [
+  { label: 'Chrome', value: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36' },
+  { label: 'Firefox', value: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:143.0) Gecko/20100101 Firefox/143.0' },
+  { label: 'Safari', value: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_5) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Safari/605.1.15' },
+  { label: 'Chrome', value: 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36' },
+  { label: 'Safari', value: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1' },
+  { label: 'Edge', value: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 Edg/124.0.0.0' },
+];
+const resetHeaders = () => {
+  headerEntries.value = [
+    { key: 'User-Agent', value: userAgentOptions[0]?.value || '' },
+  ];
+};
+
 const rules = {
   videoUrl: {
     required: true,
@@ -144,6 +162,7 @@ const addToListHandle = throttle(async () => {
   try {
     await formRef.value?.validate();
     const id = crypto.randomUUID();
+    updateHeadersObject()
 
     downloadingStore.addItem({
       id,
@@ -153,6 +172,7 @@ const addToListHandle = throttle(async () => {
       status: 0,
       url: formValue.videoUrl,
       downloadPath: settingStore.downloadPath,
+      headers: formValue.headers,
     });
 
     message.success("添加成功");
@@ -165,6 +185,7 @@ const addToListHandle = throttle(async () => {
 
 const clickNewDownload = ()=> {
   showModal.value = true
+  resetHeaders(); // 统一重置headers
   Object.keys(formValue).forEach(key => {
     delete formValue[key];
   });
@@ -190,6 +211,28 @@ const nowDownloadHandle = async () => {
   d_loading.value = false
 }
 
+// 添加 Header 输入框
+const addHeader = () => {
+  headerEntries.value.push({ key: '', value: '' });
+};
+
+// 移除 Header 输入框
+const removeHeader = (index) => {
+  if (headerEntries.value.length > 1) {
+    headerEntries.value.splice(index, 1);
+  }
+};
+
+// 将 headerEntries 转换为 headers 对象
+const updateHeadersObject = () => {
+  const headers = {};
+  headerEntries.value.forEach(entry => {
+    if (entry.key.trim()) {
+      headers[entry.key] = entry.value;
+    }
+  });
+  formValue.headers = headers;
+};
 
 import { getCurrentWindow } from '@tauri-apps/api/window';
 let unlisten = null; // 用于清理监听器
@@ -323,19 +366,66 @@ onUnmounted(() => {
       <div>新建下载</div>
     </template>
     <n-form
-        ref="formRef"
-        label-placement="left"
-        label-width="auto"
-        :model="formValue"
-        :rules="rules"
-    >
-      <n-form-item label="视频链接" path="videoUrl">
-        <n-input v-model:value="formValue.videoUrl" placeholder="请输入视频m3u8链接"/>
-      </n-form-item>
-      <n-form-item label="视频名称" path="videoName">
-        <n-input v-model:value="formValue.videoName" placeholder="请输入视频名称"/>
-      </n-form-item>
-    </n-form>
+          ref="formRef"
+          label-placement="left"
+          label-width="auto"
+          :model="formValue"
+          :rules="rules"
+      >
+        <n-form-item label="视频链接" path="videoUrl">
+          <n-input v-model:value="formValue.videoUrl" placeholder="请输入视频m3u8链接"/>
+        </n-form-item>
+        <n-form-item label="视频名称" path="videoName">
+          <n-input v-model:value="formValue.videoName" placeholder="请输入视频名称"/>
+        </n-form-item>
+      
+        <!-- 高级选项折叠面板 -->
+        <n-collapse>
+          <n-collapse-item title="高级选项" name="advanced">
+            <div style="padding: 10px;">
+              <p style="margin-bottom: 10px; color: #666;">自定义请求头（可选）</p>
+              <div
+                v-for="(header, index) in headerEntries" 
+                :key="index" 
+                style="margin-bottom: 10px; display: flex; align-items: center;"
+              >
+            <n-input 
+                v-model:value="header.key" 
+                placeholder="Key" 
+                style="width: 37%; margin-right: 3%;"
+                />
+                <template v-if="header.key.trim().toLowerCase() === 'user-agent'">
+                <n-select 
+                    v-model:value="header.value" 
+                    :options="userAgentOptions" 
+                    style="width: 50%;"
+                    placeholder="选择User-Agent"
+                    allow-input
+                />
+                </template>
+                <template v-else>
+                <n-input 
+                    v-model:value="header.value" 
+                    placeholder="Value" 
+                    style="width: 50%;"
+                />
+                </template>
+                <n-button 
+                  @click="removeHeader(index)" 
+                  text 
+                  type="error"
+                  style="width: 10%;"
+                >
+                  ×
+                </n-button>
+              </div>
+              <n-button @click="addHeader" size="small" text type="primary">
+                + 添加 Header
+              </n-button>
+            </div>
+          </n-collapse-item>
+        </n-collapse>
+      </n-form>
     <template #action>
       <n-button size="small" ghost @click="cancelAddDownloadHandle">取消</n-button>
       <n-button size="small" type="info" ghost @click="addToListHandle">加入列表</n-button>
