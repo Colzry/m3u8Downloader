@@ -25,6 +25,7 @@
 - 🧪 自动验证 ts 分片格式有效性，防止无效文件污染合并结果
 - ✨ 断点续传下载支持，程序重启后能精确从上次的分片下载开始，保证恢复下载的一致性
 - 🛡️ 智能重试策略，引入指数退避和随机抖动机制，大幅提高了网络波动下的下载成功率
+- 📡 支持自定义请求头（Custom Headers），可添加Referer、User-Agent、Cookie等HTTP头部信息，绕过网站反爬虫限制
 
 ## 🚀 下载
 [点击去下载](https://github.com/Colzry/m3u8Downloader/releases)
