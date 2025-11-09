@@ -1,8 +1,7 @@
 //! M3U8 分片下载模块，支持AES-128加密流媒体解密
-//! 核心特性：
 //! - 多线程并发下载
-//! - 取消控制
-//! - 断点续传（基于 manifest 文件，性能更高）
+//! - 断点续传
+//! - 自定请求头
 
 #![allow(deprecated)]
 use crate::download_monitor::{run_monitor_task, DownloadMetrics};
@@ -24,6 +23,7 @@ use std::{
     },
 };
 use std::path::Path;
+use serde::{Serialize, Deserialize};
 use rand::{Rng, SeedableRng};
 use rand::rngs::SmallRng;
 use tauri::AppHandle;
@@ -36,7 +36,7 @@ use tokio::{
 
 /// 加密信息结构体
 /// 用于存储解密TS分片所需的密钥信息
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 struct EncryptionInfo {
     key: Vec<u8>,        // AES-128加密密钥（16字节）
     iv: Option<Vec<u8>>, // 初始化向量（16字节），None时使用默认全零IV
@@ -201,6 +201,14 @@ async fn download_file(
     Ok(DownloadResult::Success(output_path.to_string()))
 }
 
+/// 分片信息结构
+#[derive(Serialize, Deserialize)]
+struct SegmentMetadata {
+    url: String,
+    local_path: String,
+    encryption: Option<EncryptionInfo>,
+}
+
 /// M3U8下载主函数
 pub async fn download_m3u8(
     id: String,                       // 下载任务唯一标识
@@ -220,55 +228,95 @@ pub async fn download_m3u8(
     // 预处理headers，只验证一次
     let valid_headers = preprocess_headers(&options.headers);
     log::info!("headers: {:#?}", valid_headers);
-
-    // 解析M3U8文件内容
-    let m3u8_response = client.get(url).headers(valid_headers.clone()).send().await?.text().await?;
-
-    // --- 步骤 1: 解析M3U8，收集所有分片信息 ---
+    
+    // 分片元数据文件路径
+    let segments_metadata_path = format!("{}/segments.json", temp_dir);
     let mut all_ts_segments = Vec::new();
-    let mut current_encryption = None;
+    
+    // 尝试从保存的元数据文件中加载分片信息
+    if tokio::fs::metadata(&segments_metadata_path).await.is_ok() {
+        log::info!("📥 从本地加载分片元数据: {}", segments_metadata_path);
+        let metadata_content = tokio::fs::read_to_string(&segments_metadata_path).await?;
+        let segments_metadata: Vec<SegmentMetadata> = serde_json::from_str(&metadata_content)?;
+        
+        // 转换为原始格式
+        for segment in segments_metadata {
+            all_ts_segments.push((segment.url, segment.local_path, segment.encryption));
+        }
+    } else {
+        // 第一次下载，需要解析M3U8文件
 
-    for (index, line) in m3u8_response.lines().enumerate() {
-        let line = line.trim();
-        if line.starts_with("#EXT-X-KEY:") {
-            // 处理加密信息
-            let (method, key_uri, iv_str) = parse_ext_x_key(line)?;
-            if method.to_uppercase() == "AES-128" {
-                // 构建完整密钥URL
-                let key_url = if key_uri.starts_with("http") {
-                    key_uri.clone()
+        // 解析M3U8文件内容
+        let m3u8_response = client.get(url).headers(valid_headers.clone()).send().await?.text().await?;
+
+        // --- 步骤 1: 解析M3U8，收集所有分片信息 ---
+        let mut current_encryption = None;
+
+        for (index, line) in m3u8_response.lines().enumerate() {
+            let line = line.trim();
+            if line.starts_with("#EXT-X-KEY:") {
+                // 处理加密信息
+                let (method, key_uri, iv_str) = parse_ext_x_key(line)?;
+                if method.to_uppercase() == "AES-128" {
+                    // 构建完整密钥URL
+                    let key_url = if key_uri.starts_with("http") {
+                        key_uri.clone()
+                    } else if key_uri.starts_with('/') {
+                        // 处理绝对路径（以/开头）- 相对于域名根目录解析
+                        let base_url = url.split("/").take(3).collect::<Vec<&str>>().join("/");
+                        format!("{}{}", base_url, key_uri)
+                    } else {
+                        // 处理相对路径 - 相对于M3U8文件所在目录解析
+                        format!("{}/{}", url.rsplit_once('/').unwrap().0, key_uri)
+                    };
+
+                    // 下载密钥文件
+                    let key_response = client.get(&key_url).headers(valid_headers.clone()).send().await?.bytes().await?;
+                    let key = key_response.to_vec();
+
+                    // 解析IV值
+                    let iv = iv_str.as_ref().and_then(|iv_raw| {
+                        let hex = iv_raw.strip_prefix("0x").unwrap_or(iv_raw);
+                        hex_to_bytes(hex).ok()
+                    });
+
+                    current_encryption = Some(EncryptionInfo { key, iv });
                 } else {
-                    format!("{}/{}", url.rsplit_once('/').unwrap().0, key_uri)
-                };
-
-                // 下载密钥文件
-                let key_response = client.get(&key_url).headers(valid_headers.clone()).send().await?.bytes().await?;
-                let key = key_response.to_vec();
-
-                // 解析IV值
-                let iv = iv_str.as_ref().and_then(|iv_raw| {
-                    let hex = iv_raw.strip_prefix("0x").unwrap_or(iv_raw);
-                    hex_to_bytes(hex).ok()
-                });
-
-                current_encryption = Some(EncryptionInfo { key, iv });
-            } else {
-                current_encryption = None;
+                    current_encryption = None;
+                }
+                continue;
             }
-            continue;
-        }
 
-        // 收集TS分片任务
-        if line.ends_with(".ts") {
-            let ts_url = if line.starts_with("http") {
-                line.to_string()
-            } else {
-                format!("{}/{}", url.rsplit_once('/').unwrap().0, line)
-            };
-            let filename = format!("{}/part_{}.ts", temp_dir, index);
-            // 存储元组 (URL, 本地路径, 加密信息)
-            all_ts_segments.push((ts_url, filename, current_encryption.clone()));
+            // 收集TS分片任务
+            if line.ends_with(".ts") {
+                let ts_url = if line.starts_with("http") {
+                    line.to_string()
+                } else if line.starts_with('/') {
+                    // 处理绝对路径（以/开头）- 相对于域名根目录解析
+                    let base_url = url.split("/").take(3).collect::<Vec<&str>>().join("/");
+                    format!("{}{}", base_url, line)
+                } else {
+                    // 处理相对路径 - 相对于M3U8文件所在目录解析
+                    format!("{}/{}", url.rsplit_once('/').unwrap().0, line)
+                };
+                let filename = format!("{}/part_{}.ts", temp_dir, index);
+                all_ts_segments.push((ts_url, filename, current_encryption.clone()));
+            }
         }
+        
+        // 保存分片元数据到文件，供后续断点续传使用
+        let segments_metadata: Vec<SegmentMetadata> = all_ts_segments
+            .iter()
+            .map(|(url, local_path, encryption)| SegmentMetadata {
+                url: url.clone(),
+                local_path: local_path.clone(),
+                encryption: encryption.clone(),
+            })
+            .collect();
+        
+        let metadata_json = serde_json::to_string(&segments_metadata)?;
+        tokio::fs::write(&segments_metadata_path, metadata_json).await?;
+        log::info!("💾 已保存分片元数据到: {}", segments_metadata_path);
     }
 
     if all_ts_segments.is_empty() {
@@ -302,8 +350,8 @@ pub async fn download_m3u8(
         for (ts_url, filename, encryption) in all_ts_segments {
             // 获取相对文件名，例如 "part_123.ts"
             let relative_name = match Path::new(&filename).file_name().and_then(|s| s.to_str()) {
-                Some(name) => name.to_string(),
-                None => continue, // 路径无效，跳过
+                Some(name) => { name.to_string() }
+                None => { continue; } // 路径无效，跳过
             };
 
             // 检查清单中是否存在
@@ -349,7 +397,6 @@ pub async fn download_m3u8(
     ).await;
 
     // --- 步骤 4: 启动下载任务 (只下载 pending_downloads) ---
-
     // 创建一个线程安全的清单文件写入器
     let manifest_writer = Arc::new(Mutex::new(
         tokio::fs::File::options()
