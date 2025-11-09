@@ -23,10 +23,10 @@ const formValue = reactive({
 // 处理自定义 Headers 的响应式数据
 const headerEntries = ref([{ key: '', value: '' }]);
 const userAgentOptions = [
-  { label: 'Chrome', value: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36' },
+  { label: 'Chrome(Win)', value: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36' },
   { label: 'Firefox', value: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:143.0) Gecko/20100101 Firefox/143.0' },
   { label: 'Safari', value: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_5) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Safari/605.1.15' },
-  { label: 'Chrome', value: 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36' },
+  { label: 'Chrome(Linux)', value: 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36' },
   { label: 'Safari', value: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1' },
   { label: 'Edge', value: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 Edg/124.0.0.0' },
 ];
@@ -382,7 +382,7 @@ onUnmounted(() => {
         <!-- 高级选项折叠面板 -->
         <n-collapse>
           <n-collapse-item title="高级选项" name="advanced">
-            <div style="padding: 10px;">
+            <div>
               <p style="margin-bottom: 10px; color: #666;">自定义请求头（可选）</p>
               <div
                 v-for="(header, index) in headerEntries" 

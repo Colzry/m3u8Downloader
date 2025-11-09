@@ -101,20 +101,13 @@ pub async fn run_monitor_task(
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         // 创建定时器并消耗初始触发
-        let mut interval = tokio::time::interval(Duration::from_millis(200));
+        let mut interval = tokio::time::interval(Duration::from_millis(1000));
         interval.tick().await;
-        let mut last_send_time = Instant::now();
 
         let mut last_data: Option<serde_json::Value> = None;
         loop {
             // 等待下一个周期
             interval.tick().await;
-
-            let now = Instant::now();
-            if now.duration_since(last_send_time) < Duration::from_millis(200) {
-                continue;
-            }
-            last_send_time = now;
 
             // --- 获取并构建状态数据 ---
             let is_cancelled = cancelled.load(Ordering::Relaxed);

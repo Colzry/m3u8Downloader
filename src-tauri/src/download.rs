@@ -459,7 +459,7 @@ pub async fn download_m3u8(
                         return Ok(());
                     }
                     Err(e) => {
-                        log::error!("⚠️ 分片 [{}] 第 {} 次下载失败，原因：{}", filename, attempt, e);
+                        log::warn!("⚠️ 分片 [{}] 第 {} 次下载失败，原因：{}", filename, attempt, e);
                         if attempt < MAX_RETRIES {
                             // 优化点 1: 实现指数退避和随机抖动
                             // 计算基础延迟: 2^attempt 秒，最大不超过 10 秒
@@ -497,7 +497,7 @@ pub async fn download_m3u8(
         if cancelled.load(Ordering::Relaxed) {
             // 用户主动取消
             log::info!(
-                "任务 [{}] 未完成下载。预期: {}, 已完成: {}. 任务已被取消。",
+                "任务 [{}] 未完成下载。预期: {}, 已完成: {}. 任务已被取消",
                 id,
                 total_chunks,
                 final_ts_files.len()
@@ -505,7 +505,7 @@ pub async fn download_m3u8(
         } else {
             // 下载失败
             log::error!(
-                "任务 [{}] 未能集齐所有分片。预期: {}, 实际: {}. 下载失败。",
+                "任务 [{}] 未能集齐所有分片。预期: {}, 实际: {}. 下载失败",
                 id,
                 total_chunks,
                 final_ts_files.len()
@@ -517,15 +517,15 @@ pub async fn download_m3u8(
             return Err(anyhow::anyhow!("下载失败，部分分片缺失"));
         }
     } else {
-        log::info!("任务 [{}] 所有分片均已就绪，准备合并。", id);
+        log::info!("任务 [{}] 所有分片均已就绪，准备合并", id);
     }
 
     // 等待速度监控任务退出
     speed_handle.await?;
 
-    // 如果任务被取消，则跳过合并
+    // 任务被取消
     if cancelled.load(Ordering::Relaxed) {
-        log::warn!("任务 [{}] 已被取消，跳过合并。", id);
+        log::warn!("任务 [{}] 检测已被取消，结束下载", id);
         return Ok(());
     }
 

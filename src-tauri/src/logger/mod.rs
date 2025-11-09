@@ -4,7 +4,7 @@ use fern::Dispatch;
 use log::LevelFilter;
 use chrono::Local;
 use std::path::PathBuf;
-use tauri::{AppHandle, Manager};
+use tauri::AppHandle;
 
 pub mod rotate;
 
@@ -100,7 +100,6 @@ pub fn setup_logging(app_handle: &AppHandle) -> Result<(), String> {
 
     log::info!("✅ 日志模块加载成功");
     log::info!("ℹ️ 当前日志级别为: {:?}", level);
-    log::info!("ℹ️ 日志文件位于: {:?}", app_handle.path().app_log_dir().unwrap());
 
     Ok(())
 }
