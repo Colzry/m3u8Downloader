@@ -166,11 +166,11 @@ const addToListHandle = throttle(async () => {
 
     downloadingStore.addItem({
       id,
-      title: formValue.videoName,
+      title: formValue.videoName.trim(),
       progress: 0,
       isDownloaded: false,
       status: 0,
-      url: formValue.videoUrl,
+      url: formValue.videoUrl.trim(),
       downloadPath: settingStore.downloadPath,
       headers: formValue.headers,
     });
