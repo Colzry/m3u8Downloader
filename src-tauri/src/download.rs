@@ -110,26 +110,14 @@ pub enum DownloadResult {
     Cancelled(String), // 因用户取消而中断下载
 }
 
-/// 下载单个TS文件（支持加密内容解密）
-/// 关键改进点：
-/// 1. 实时更新全局下载字节计数器
-/// 2. 支持取消下载
-async fn download_file(
-    client: &Client,
-    url: &str,
-    output_path: &str,
-    cancelled: &Arc<AtomicBool>,
-    encryption: Option<EncryptionInfo>,
-    metrics: Arc<DownloadMetrics>, // metrics参数
-    headers: &HashMap<String, String>, // 自定义请求头
-) -> Result<DownloadResult> {
-    // 构建带自定义请求头的请求
-    let mut request = client.get(url);
+/// 自定义下载请求头
+fn preprocess_headers(headers: &HashMap<String, String>) -> reqwest::header::HeaderMap {
+    let mut valid_headers = reqwest::header::HeaderMap::new();
     for (key, value) in headers {
         // 尝试添加自定义请求头，如果格式不正确则跳过
         match (HeaderName::from_bytes(key.as_bytes()), HeaderValue::from_str(value)) {
             (Ok(header_name), Ok(header_value)) => {
-                request = request.header(header_name, header_value);
+                valid_headers.insert(header_name, header_value);
             }
             (Err(_), _) => {
                 log::warn!("无效的请求头名称，已跳过: {}", key);
@@ -139,6 +127,21 @@ async fn download_file(
             }
         }
     }
+    valid_headers
+}
+
+/// 下载单个TS文件（支持加密内容解密）
+async fn download_file(
+    client: &Client,
+    url: &str,
+    output_path: &str,
+    cancelled: &Arc<AtomicBool>,
+    encryption: Option<EncryptionInfo>,
+    metrics: Arc<DownloadMetrics>, // metrics参数
+    headers: &reqwest::header::HeaderMap, // 预处理后的有效请求头
+) -> Result<DownloadResult> {
+    // 构建带自定义请求头的请求
+    let request = client.get(url).headers(headers.clone());
     
     let mut response = request.send().await?;
     let mut buffer = Vec::new();
@@ -199,10 +202,6 @@ async fn download_file(
 }
 
 /// M3U8下载主函数
-/// 改进点：
-/// 1. 新增全局下载速度监控
-/// 2. 更精确的进度计算
-/// 3. 完善的状态报告机制
 pub async fn download_m3u8(
     id: String,                       // 下载任务唯一标识
     url: &str,                        // M3U8文件URL
@@ -216,10 +215,14 @@ pub async fn download_m3u8(
 ) -> Result<()> {
     // 创建输出目录
     fs::create_dir_all(temp_dir).await?;
+    
     let client = Client::new();
+    // 预处理headers，只验证一次
+    let valid_headers = preprocess_headers(&options.headers);
+    log::info!("headers: {:#?}", valid_headers);
 
     // 解析M3U8文件内容
-    let m3u8_response = client.get(url).send().await?.text().await?;
+    let m3u8_response = client.get(url).headers(valid_headers.clone()).send().await?.text().await?;
 
     // --- 步骤 1: 解析M3U8，收集所有分片信息 ---
     let mut all_ts_segments = Vec::new();
@@ -239,7 +242,7 @@ pub async fn download_m3u8(
                 };
 
                 // 下载密钥文件
-                let key_response = client.get(&key_url).send().await?.bytes().await?;
+                let key_response = client.get(&key_url).headers(valid_headers.clone()).send().await?.bytes().await?;
                 let key = key_response.to_vec();
 
                 // 解析IV值
@@ -365,7 +368,7 @@ pub async fn download_m3u8(
         let cancelled = Arc::clone(&cancelled);
         let metrics = Arc::clone(&metrics);
         let manifest_writer = Arc::clone(&manifest_writer);
-        let headers = options.headers.clone();
+        let headers = valid_headers.clone();
 
         handles.push(tokio::spawn(async move {
             let _permit = semaphore.acquire().await?;
