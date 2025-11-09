@@ -7,7 +7,7 @@ import {validateM3u8Url} from "@/utils/m3u8Validator.js";
 import {useMessage, useNotification } from "naive-ui";
  import {openFolder} from "@/utils/fs.js";
  import {throttle} from 'lodash';
- import {ref, reactive, watch} from "vue";
+ import {ref, reactive} from "vue";
  
  const message = useMessage();
 const notification = useNotification()
@@ -179,7 +179,7 @@ const addToListHandle = throttle(async () => {
   } catch (errors) {
     return null; // 验证失败返回 null
   }
-}, 1000)
+}, 2000, { leading: true, trailing: false})
 
 const clickNewDownload = ()=> {
   showModal.value = true

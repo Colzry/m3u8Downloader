@@ -1,5 +1,6 @@
 <script setup>
 import {useMessage} from "naive-ui";
+import { throttle } from 'lodash';
 
 const message = useMessage()
 const props = defineProps({
@@ -48,32 +49,32 @@ const handleCheckboxChange = (checked) => {
 };
 
 // 取消下载（保留临时目录）
-const cancelTask = async () => {
+const cancelTask = throttle(async () => {
   await downloadingStore.cancelDownload(props.id)
   message.success("已取消")
-}
+}, 1500, { leading: true, trailing: false})
 
 // 继续下载（断点续传）
-const continueTask = () => {
+const continueTask = throttle(() => {
   message.success("开始下载")
   downloadingStore.continueDownload(props.id)
-}
+}, 1500, { leading: true, trailing: false})
 
 // 开始下载
-const startTask = () => {
+const startTask = throttle(() => {
   message.success("开始下载")
   downloadingStore.startDownload(props.id)
-}
+}, 1500, { leading: true, trailing: false})
 
 // 删除任务（清理临时目录）
-const deleteTask = async () => {
+const deleteTask = throttle(async () => {
   if (props.isMerged) {
     await downloadedStore.removeItem(props.id)
   } else {
     await downloadingStore.removeItem(props.id)
   }
   message.success("删除成功")
-}
+}, 1500, { leading: true, trailing: false})
 </script>
 
 <template>
