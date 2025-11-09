@@ -7,7 +7,7 @@ import {listen} from "@tauri-apps/api/event";
 export const useDownloadingStore = defineStore('Downloading', {
   
   /**
-   status 0-已取消 1-等待中 2-下载中 3-合并中
+   status 0-已取消 1-等待中 2-下载中 3-下载完成 4-合并中 5-合并完成 10-初始化或新添加 400-合并失败
    **/
   
   state: () => ({
@@ -44,17 +44,12 @@ export const useDownloadingStore = defineStore('Downloading', {
     // 在应用启动时调用，用于清理从持久化存储中加载的状态。
     init() {
       for (const item of this.items) {
-        // 1. 将所有"下载中"或"等待中"的任务重置为"已取消"
-        // status 0 (已取消) 是重启后的标准"待命"状态
-        if (item.status === 2 || item.status === 1) {
-          item.status = 0; // 0-已取消
+        // 1. 将所有"下载中"或"等待中"以及"合并中"的任务重置为"初始化或新添加"
+        // status 10 (初始化或新添加) 是重启后的标准"待命"状态
+        if (item.status !== 10) {
+          item.status = 10; // 10-初始化或新添加
         }
-        
-        // 2. 重置 isDownloaded 标志
-        // 这会强制 continueDownload 在程序重启后的第一次调用时，
-        // 走 startDownload 逻辑。
-        // startDownload 会触发 Rust 端的断点续传（读取 progress.dat）。
-        item.isDownloaded = false;
+
       }
     },
     
@@ -256,7 +251,7 @@ export const useDownloadingStore = defineStore('Downloading', {
         listen('start_merge_video', (event) => {
           const data = event.payload;
           if (data.id === taskId) {
-            this.updateItem(data.id, {status : 3})
+            this.updateItem(data.id, {status : 4})
           }
           // 开始合并，触发队列检查，继续下载下一个
           this.tryStartNextDownloads();
@@ -265,7 +260,7 @@ export const useDownloadingStore = defineStore('Downloading', {
         // 合并视频监听
         listen('merge_video', (event) => {
           const data = event.payload;
-          if (data.id === taskId && data.isMerge) {
+          if (data.id === taskId && data.isMerged) {
             // 迁移数据示例
             const item = this.items.find(i => i.id === taskId);
             if (item) {
@@ -296,7 +291,9 @@ export const useDownloadingStore = defineStore('Downloading', {
             outputDir: item.downloadPath,
             threadCount: settingStore.threadCount,
             headers: item.headers || {}
-          });
+        }).catch(err => { 
+            throw err;
+        });
       }
     },
     

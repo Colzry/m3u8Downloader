@@ -118,16 +118,16 @@ pub async fn run_monitor_task(
             let chunks_total = metrics.total_chunks;
 
             // 如果所有分片都已完成，则状态为"正在合并"
-            let is_merge = chunks_total > 0 && chunks_completed == chunks_total;
+            let is_downloaded = chunks_total > 0 && chunks_completed == chunks_total;
 
             // 构建状态元数据
-            let status_info = match (is_cancelled, is_merge) {
+            let status_info = match (is_cancelled, is_downloaded) {
                 (true, _) => (0, "已取消"),          // cancelled
                 (false, false) => (2, "下载中"),     // downloading
-                (false, true) => (3, "正在合并"),    // merge
+                (false, true) => (3, "下载完成"),    // merging
             };
 
-            /* status 0-已取消 1-等待中 2-下载中 3-合并中 */
+            /* status 0-已取消 1-等待中 2-下载中 3-下载完成 4-合并中 5-合并完成 10-初始化或新添加 400-合并失败 */
 
             // 生成当前事件数据
             let current_data = json!({
@@ -136,7 +136,7 @@ pub async fn run_monitor_task(
                 "speed": format!("{:.2} {}", speed_val, speed_unit),
                 "status": status_info.0,
                 "message": status_info.1,
-                "isMerge": is_merge,
+                "isMerged": false,
                 "details": {
                     "chunks": chunks_completed,
                     "total_chunks": chunks_total,
@@ -154,7 +154,7 @@ pub async fn run_monitor_task(
             }
 
             // 退出条件：任务被取消或进入合并状态
-            if is_cancelled || is_merge {
+            if is_cancelled || is_downloaded {
                 break;
             }
         }

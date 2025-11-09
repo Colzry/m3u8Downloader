@@ -21,6 +21,9 @@ onBeforeMount(async () => {
     const videoPath = await videoDir();
     if (settingStore.downloadPath === "") {
         settingStore.downloadPath = videoPath;
+        const [physicalCores, logicalCores] = await invoke("get_cpu_info");
+        settingStore.physicalCores = physicalCores;
+        settingStore.logicalCores = logicalCores;
     } else {
         const isExistsDownloadPath = await exists(settingStore.downloadPath);
         if (!isExistsDownloadPath) {
@@ -33,13 +36,6 @@ onBeforeMount(async () => {
     }
 
     downloadingStore.init();
-
-    if (settingStore.threadCount === 1) {
-        const [physicalCores, logicalCores] = await invoke("get_cpu_info");
-        settingStore.physicalCores = physicalCores;
-        settingStore.logicalCores = logicalCores;
-        settingStore.threadCount = logicalCores;
-    }
 });
 
 const inverted = ref(false); // 用于控制颜色反转

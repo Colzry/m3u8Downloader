@@ -15,11 +15,7 @@ const props = defineProps({
     type: Number,
     required: true,
   },
-  isDownloaded: {
-    type: Boolean,
-    required: true,
-  },
-  isMerge: {
+  isMerged: {
     type: Boolean,
     default: false,
   },
@@ -71,7 +67,7 @@ const startTask = () => {
 
 // 删除任务（清理临时目录）
 const deleteTask = async () => {
-  if (props.isMerge && props.status !== 3) {
+  if (props.isMerged) {
     await downloadedStore.removeItem(props.id)
   } else {
     await downloadingStore.removeItem(props.id)
@@ -104,15 +100,15 @@ const deleteTask = async () => {
             </template>
             你确认要删除吗？
           </n-popconfirm>
-          <!-- 已取消或已下载：显示继续下载 -->
-          <span class="opera-btn" v-if="!isMerge&&isDownloaded&&status===0" @click="continueTask">继续下载</span>
           <!-- 未下载过：显示开始下载 -->
-          <span class="opera-btn" v-if="!isMerge&&!isDownloaded&&status!==1" @click="startTask">开始下载</span>
+          <span class="opera-btn" v-if="!isMerged && status === 10" @click="startTask">开始下载</span>
+          <!-- 已取消或已下载：显示继续下载 -->
+          <span class="opera-btn" v-if="!isMerged && status === 0" @click="continueTask">继续下载</span>
           <!-- 等待中：显示取消等待 -->
-          <span class="opera-btn" v-if="status===1" @click="cancelTask">取消等待</span>
+          <span class="opera-btn" v-if="!isMerged && status === 1" @click="cancelTask">取消等待</span>
         </div>
       </div>
-      <div class="progress-wrap" v-if="!isMerge&&isDownloaded">
+      <div class="progress-wrap" v-if="!isMerged && status === 2">
           <n-progress
               style="flex-grow: 1; min-width: 84%"
               type="line"
@@ -124,11 +120,13 @@ const deleteTask = async () => {
         <div class="progress-value">{{ progress }}%</div>
         <div class="speed tail" v-if="status === 0">已取消</div>
         <div class="speed tail" v-else-if="status === 2">{{ speed }}</div>
-        <div class="speed tail" v-else-if="status === 1">等待下载</div>
       </div>
       <div class="completed-warp" v-else>
         <div class="url-warp text-ellipsis">{{url}}</div>
         <div class="merge-status tail" v-if="status === 3">
+          <span>下载完成</span>
+        </div>
+        <div class="merge-status tail" v-if="status === 4">
           <span>正在合并</span>
           <span class="slash-container">.</span>
           <span class="slash-rotating">/</span>

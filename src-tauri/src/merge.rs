@@ -1,9 +1,10 @@
-use std::path::PathBuf;
 use anyhow::Result;
-use tauri::{AppHandle, Emitter, Manager};
+use std::path::PathBuf;
 use tauri::path::BaseDirectory;
+use tauri::{AppHandle, Emitter, Manager};
 use tokio::fs::File;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::AsyncWriteExt;
+use tokio::process;
 
 /// 根据当前平台和架构，从 Tauri 资源中解析 ffmpeg 可执行文件的绝对路径。
 /// 如果是 Linux/macOS，则将其复制到 AppData 目录并设置执行权限。
@@ -33,13 +34,17 @@ pub async fn resolve_ffmpeg_path_and_prepare(handle: &AppHandle) -> Result<PathB
     // 4. Linux/macOS: 复制到 AppData 目录并设置执行权限
     #[cfg(not(target_os = "windows"))]
     {
-        let app_data_dir = handle.path().app_data_dir()
+        let app_data_dir = handle
+            .path()
+            .app_data_dir()
             .map_err(|e| anyhow::anyhow!("无法获取 AppData 目录: {}", e))?;
 
         // 确保目录存在
         tokio::fs::create_dir_all(&app_data_dir).await?;
 
-        let target_name = resource_path.file_name().ok_or_else(|| anyhow::anyhow!("无效的 ffmpeg 文件名"))?;
+        let target_name = resource_path
+            .file_name()
+            .ok_or_else(|| anyhow::anyhow!("无效的 ffmpeg 文件名"))?;
         let target_path = app_data_dir.join(target_name);
 
         // 复制文件（仅当目标文件不存在时才复制和设置权限）
@@ -53,8 +58,13 @@ pub async fn resolve_ffmpeg_path_and_prepare(handle: &AppHandle) -> Result<PathB
             // 设置权限为 rwxr-xr-x (0o755)
             let perms = std::fs::Permissions::from_mode(0o755);
             // 这里使用 std::fs::set_permissions 因为它不是 I/O 密集型操作
-            std::fs::set_permissions(&target_path, perms)
-                .map_err(|e| anyhow::anyhow!("无法为 ffmpeg 设置执行权限 ({}): {}", target_path.display(), e))?;
+            std::fs::set_permissions(&target_path, perms).map_err(|e| {
+                anyhow::anyhow!(
+                    "无法为 ffmpeg 设置执行权限 ({}): {}",
+                    target_path.display(),
+                    e
+                )
+            })?;
             log::info!("已设置 ffmpeg 执行权限: {}", target_path.display());
         }
 
@@ -62,7 +72,7 @@ pub async fn resolve_ffmpeg_path_and_prepare(handle: &AppHandle) -> Result<PathB
     }
 }
 
-// 下载的ts文件排序
+/// 下载的ts文件排序
 fn sort_ts_files(ts_files: &mut Vec<String>) {
     ts_files.sort_by(|a, b| {
         let extract_index = |s: &str| {
@@ -76,7 +86,91 @@ fn sort_ts_files(ts_files: &mut Vec<String>) {
     });
 }
 
-// 使用ffmpeg合并ts
+/// 创建带平台特性的 Command
+#[cfg(target_os = "windows")]
+fn create_ffmpeg_command(ffmpeg: &str) -> process::Command {
+    let mut cmd = process::Command::new(ffmpeg);
+    cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+    cmd
+}
+
+#[cfg(not(target_os = "windows"))]
+fn create_ffmpeg_command(ffmpeg: &str) -> process::Command {
+    process::Command::new(ffmpeg)
+}
+
+/// 合并失败统一处理
+async fn fail_merge(app_handle: &AppHandle, id: &str) -> Result<()> {
+    app_handle.emit(
+        "merge_video",
+        serde_json::json!({
+            "id": id,
+            "isMerged": false,
+            "status": 400,
+            "message": "合并失败"
+        }),
+    )?;
+    Ok(())
+}
+
+/// 移除文件名中的非法字符，以确保文件名在操作系统层面合法。
+fn sanitize_filename(name: &str) -> String {
+    // Windows 文件系统不允许的字符集： \ / : * ? " < > |
+    let illegal_chars = r#"\/*:?"<>|"#;
+
+    // 此外，Windows 不允许以空格或点开头/结尾
+    // 也不允许使用 CON, PRN, AUX, NUL, COMx, LPTx 作为文件名（无论大小写）
+
+    // 移除非法字符
+    let sanitized: String = name
+        .chars()
+        .filter(|c| !illegal_chars.contains(*c))
+        .collect();
+
+    // 移除开头/结尾的空格或点
+    let mut sanitized = sanitized.trim_matches(|c| c == ' ' || c == '.').to_string();
+
+    // 检查 Windows 保留名（虽然大部分都会被前面的非法字符和 trim 处理，但为了健壮性保留）
+    #[cfg(target_os = "windows")]
+    {
+        // Windows 保留文件名（无论大小写，无扩展名时）
+        let reserved_names = [
+            "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7",
+            "COM8", "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
+        ];
+
+        // 获取文件名（不含路径）和扩展名
+        let name_path = std::path::Path::new(&sanitized);
+        if let Some(file_name) = name_path.file_name().and_then(|n| n.to_str()) {
+            let name_upper = file_name.to_uppercase();
+            // 检查无扩展名的部分
+            if let Some(name_no_ext) = name_upper.split('.').next() {
+                if reserved_names
+                    .iter()
+                    .any(|&reserved| reserved == name_no_ext)
+                {
+                    // 如果匹配保留名，则在文件名后附加一个下划线
+                    if let Some(ext) = name_path.extension().and_then(|e| e.to_str()) {
+                        // 有扩展名
+                        sanitized = format!("{}_{}.{}", name_no_ext, "_", ext);
+                    } else {
+                        // 无扩展名
+                        sanitized = format!("{}_", name_no_ext);
+                    }
+                }
+            }
+        }
+    }
+
+    // 如果净化后为空，返回一个默认值
+    if sanitized.is_empty() {
+        "output".to_string()
+    } else {
+        sanitized
+    }
+}
+
+/// 使用ffmpeg合并ts
 pub async fn merge_files(
     id: String,
     name: &str,
@@ -85,69 +179,45 @@ pub async fn merge_files(
     output_dir: &str,
     app_handle: AppHandle,
 ) -> Result<()> {
-    // 创建 concat.txt 文件路径
+    // 1. 创建 concat.txt
     let concat_file_path = format!("{}/concat.txt", temp_dir);
     let mut concat_file = File::create(&concat_file_path).await?;
-
-    // 将下载好的TS 文件排好序，防止合并的视频播放异常
     sort_ts_files(&mut ts_files);
-
-    // 异步写入 TS 文件列表到 concat.txt
-    for ts_file in ts_files {
+    for ts_file in &ts_files {
+        // 正确转义单引号
+        let escaped = ts_file.replace('\\', r"\\").replace('\'', r"\'");
         concat_file
-            .write_all(format!("file '{}'\n", ts_file).as_bytes())
+            .write_all(format!("file '{}'\n", escaped).as_bytes())
             .await?;
     }
-
-    // 关闭文件以确保写入完成
+    concat_file.flush().await?;
     drop(concat_file);
 
-    // 输出文件路径
-    let output_file = format!("{}/{}.mp4", output_dir, name);
+    // 2. 净化文件名并构建输出路径
+    let sanitized_name = sanitize_filename(name);
+    let output_path = std::path::Path::new(output_dir).join(format!("{}.mp4", sanitized_name));
+    let output_file_str = output_path.to_string_lossy();
 
-    // 获取可执行文件所在的目录，并进行复制和设置权限
+    // 3. 获取 ffmpeg
     let ffmpeg_path = resolve_ffmpeg_path_and_prepare(&app_handle).await?;
+    let ffmpeg = ffmpeg_path
+        .to_str()
+        .ok_or_else(|| anyhow::anyhow!("ffmpeg 路径无效"))?;
 
-    log::info!("ffmpeg {} -> {}", output_file, ffmpeg_path.to_str().unwrap());
+    // 通知开始
+    app_handle.emit(
+        "start_merge_video",
+        serde_json::json!({
+            "id": &id,
+            "isMerged": false,
+            "status": 4,
+            "message": "开始合并"
+        }),
+    )?;
 
-    // 将 PathBuf 转换为 &str，用于后续命令
-    let ffmpeg = ffmpeg_path.to_str()
-        .ok_or_else(|| anyhow::anyhow!("无效的 ffmpeg 路径 (包含非UTF8字符)"))?;
-
-    // 检查 ffmpeg 是否存在
-    if !std::path::Path::new(ffmpeg).exists() {
-        return Err(anyhow::anyhow!("ffmpeg binary not found at {}", ffmpeg));
-    }
-
-
-
-    // 创建 Command
-    #[cfg(target_os = "windows")]
-    let mut cmd = std::process::Command::new(ffmpeg);
-    #[cfg(target_os = "windows")]
-    use std::os::windows::process::CommandExt;
-    #[cfg(target_os = "windows")]
-    cmd.creation_flags(0x08000000); // 隐藏窗口
-    #[cfg(not(target_os = "windows"))]
-    let cmd = std::process::Command::new(ffmpeg);
-
-    // 通知前端开始合并 status 10 - 开始合并  11 - 合并成功  12 - 合并失败
-    app_handle
-        .emit(
-            "start_merge_video",
-            serde_json::json!({
-                "id": id,
-                "isMerge": false,
-                "status": 10,
-                "message": "开始合并",
-            }),
-        )
-        .ok();
-    log::info!("{} 开始合并", id);
-
-    let status = tokio::process::Command::from(cmd)
-        .args(&[
-            "-y", // 覆盖输出文件
+    let status = create_ffmpeg_command(ffmpeg)
+        .args([
+            "-y",
             "-f",
             "concat",
             "-safe",
@@ -156,98 +226,34 @@ pub async fn merge_files(
             &concat_file_path,
             "-c",
             "copy",
-            &output_file,
+            "-map",
+            "0",
+            "-avoid_negative_ts",
+            "make_zero",
+            "-bsf:a",
+            "aac_adtstoasc",
+            &output_file_str,
         ])
         .status()
         .await?;
 
-    // 检查 FFmpeg 状态
     if !status.success() {
-        app_handle
-            .emit(
-                "merge_video",
-                serde_json::json!({
-                    "id": id,
-                    "isMerge": false,
-                    "status": 12,
-                    "message": "合并失败",
-                }),
-            )
-            .ok();
-        log::error!("{} 合并失败", id);
-        return Err(anyhow::anyhow!("FFmpeg merge failed"));
+        fail_merge(&app_handle, &id).await?;
+        return Err(anyhow::anyhow!("FFmpeg 合并失败"));
     }
 
-    // 通知前端合并完成
-    app_handle
-        .emit(
-            "merge_video",
-            serde_json::json!({
-                "id": id,
-                "isMerge": true, // 合并完成
-                "status": 11,
-                "message": "合并成功",
-                "file": output_file,
-            }),
-        )
-        .ok();
-    log::info!("{} 合并完成", id);
-    Ok(())
-}
+    // 成功
+    app_handle.emit(
+        "merge_video",
+        serde_json::json!({
+            "id": id,
+            "isMerged": true,
+            "status": 5,
+            "message": "合并成功",
+            "file": output_file_str,
+        }),
+    )?;
 
-#[allow(dead_code)]
-pub async fn merge_ts_to_mp4(
-    id: String,
-    name: &str,
-    ts_files: Vec<String>,
-    output_dir: &str,
-    app_handle: AppHandle,
-) -> Result<()> {
-    // 输出文件路径
-    let output_file_path = format!("{}/{}.mp4", output_dir, name);
-    let mut output_file = File::create(&output_file_path).await?;
-
-    let total_files = ts_files.len();
-    let mut completed_files = 0;
-
-    for ts_file in ts_files {
-        let mut input_file = File::open(ts_file).await?;
-        let mut buffer = Vec::new();
-
-        // 异步读取 TS 文件内容
-        input_file.read_to_end(&mut buffer).await?;
-        output_file.write_all(&buffer).await?;
-
-        completed_files += 1;
-        let progress = (completed_files as f32 / total_files as f32) * 100.0;
-
-        // 发送进度更新到前端
-        app_handle
-            .emit(
-                "merge_video",
-                serde_json::json!({
-                    "id": id,
-                    "status": 11,
-                    "isMerge": false, // 是否合并完成
-                    "progress": progress.floor() as u32,  // 向下取整
-                }),
-            )
-            .ok();
-    }
-
-    // 合并完成通知
-    app_handle
-        .emit(
-            "merge_video",
-            serde_json::json!({
-                "id": id,
-                "isMerge": true,
-                "status": 12,
-                "message": "合并成功",
-                "file": output_file_path,
-            }),
-        )
-        .ok();
-
+    log::info!("{} 合并完成 → {}", id, output_file_str);
     Ok(())
 }

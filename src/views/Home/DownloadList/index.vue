@@ -78,14 +78,13 @@ import { useSettingStore } from "@/store/SettingStore.js";
 const downloadingStore = useDownloadingStore();
 const settingStore = useSettingStore();
 
-// 初始化一些数据（可选）
+// 初始化一些数据
 // for (let id = 1; id < 15; id++) {
 //   downloadingStore.addItem({
 //     id: id,
 //     title: '西瓜-演示下载' + id,
 //     progress: 80,
 //     speed: '999.99 KB/s',
-//     isDownloaded: false,
 //     status: 1,
 //     url: 'https://sf1-cdn-tos.huoshanstatic.com/obj/media-fe/xgplayer_doc_video/hls/xgplayer-demo.m3u8',
 //   });
@@ -168,8 +167,7 @@ const addToListHandle = throttle(async () => {
       id,
       title: formValue.videoName.trim(),
       progress: 0,
-      isDownloaded: false,
-      status: 0,
+      status: 10,
       url: formValue.videoUrl.trim(),
       downloadPath: settingStore.downloadPath,
       headers: formValue.headers,
@@ -335,8 +333,7 @@ onUnmounted(() => {
             :id="item.id"
             :title="item.title"
             :progress="item.progress"
-            :is-downloaded="item.isDownloaded"
-            :is-merge="item.isMerge"
+            :is-merged="item.isMerged"
             :status="item.status"
             :url="item.url"
             :speed="item.speed"
