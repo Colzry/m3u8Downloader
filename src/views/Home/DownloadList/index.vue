@@ -218,6 +218,8 @@ const addHeader = () => {
 const removeHeader = (index) => {
   if (headerEntries.value.length > 1) {
     headerEntries.value.splice(index, 1);
+  } else {
+      message.warning("默认配置，不允许删除");
   }
 };
 

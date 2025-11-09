@@ -19,8 +19,7 @@ pub async fn start_download(
 ) -> Result<(), String> {
     let temp_dir = format!("{}/temp_{}", output_dir, id);
 
-    log::info!("ID: {}, URL: {}, Name: {} - 开始下载", id, url, name);
-    println!("ID: {}, URL: {}, Name: {}", id, url, name);
+    log::info!("Name: [{}], URL: [{}], ID: [{}] - 开始下载", name, url, id);
 
     // 检查临时目录是否存在，不存在则创建
     let temp_dir_exists = tokio::fs::try_exists(&temp_dir).await.unwrap_or(false);
@@ -47,7 +46,8 @@ pub async fn start_download(
     
     manager
         .add_task(id.clone(), task)
-        .await;
+        .await
+        .map_err(|e| e.to_string())?;
 
     // 创建下载选项
     let mut options = DownloadOptions::new();
@@ -73,8 +73,9 @@ pub async fn start_download(
     if let Err(e) = &download_result {
         log::error!("{} 下载失败: {}", id, e);
         // 下载失败，从管理器移除任务（保留临时目录用于断点续传）
-        manager.cancel_task(&id).await;
-        return Err(e.to_string());
+        manager.cancel_task(&id)
+            .await
+            .map_err(|e| e.to_string())?;
     }
 
     // 检查是否是因为取消而结束的
@@ -109,7 +110,9 @@ pub async fn cancel_download(
     manager: tauri::State<'_, DownloadManager>,
 ) -> Result<(), String> {
     log::info!("取消下载任务: {} (保留临时目录)", id);
-    manager.cancel_task(&id).await;
+    manager.cancel_task(&id)
+        .await
+        .map_err(|e| e.to_string())?;
     Ok(())
 }
 

@@ -54,15 +54,25 @@ impl DownloadManager {
     }
 
     /// 添加任务
-    pub async fn add_task(&self, id: String, task: DownloadTask) {
-        self.tasks.lock().await.insert(id.clone(), task);
+    pub async fn add_task(&self, id: String, task: DownloadTask) -> anyhow::Result<()> {
+        let mut tasks = self.tasks.lock().await;
+        
+        // 检查是否已经存在同ID的任务
+        if tasks.contains_key(&id) {
+            log::warn!("任务 [{}] 已存在，拒绝重复添加。", id);
+            return Err(anyhow::anyhow!("任务 ID [{}] 正在运行，请勿重复启动。", id));
+        }
+        
+        tasks.insert(id.clone(), task);
         log::info!("任务 [{}] 已添加", id);
+        
+        Ok(())
     }
 
     /// 取消任务
     /// 
     /// 取消正在运行的下载任务，但保留临时目录以支持断点续传
-    pub async fn cancel_task(&self, id: &str) {
+    pub async fn cancel_task(&self, id: &str) -> anyhow::Result<()>  {
         let mut tasks = self.tasks.lock().await;
         if let Some(task) = tasks.remove(id) {
             // 设置取消标志
@@ -71,6 +81,7 @@ impl DownloadManager {
         } else {
             log::warn!("任务 [{}] 不存在，无法取消", id);
         }
+        Ok(())
     }
 
     /// 删除任务并清除临时目录

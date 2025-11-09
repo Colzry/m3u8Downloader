@@ -229,6 +229,7 @@ pub async fn download_m3u8(
     let valid_headers = preprocess_headers(&options.headers);
     log::info!("headers: {:#?}", valid_headers);
     
+    // --- 步骤 1: 解析M3U8，收集所有分片信息 ---
     // 分片元数据文件路径
     let segments_metadata_path = format!("{}/segments.json", temp_dir);
     let mut all_ts_segments = Vec::new();
@@ -245,11 +246,9 @@ pub async fn download_m3u8(
         }
     } else {
         // 第一次下载，需要解析M3U8文件
-
         // 解析M3U8文件内容
         let m3u8_response = client.get(url).headers(valid_headers.clone()).send().await?.text().await?;
-
-        // --- 步骤 1: 解析M3U8，收集所有分片信息 ---
+     
         let mut current_encryption = None;
 
         for (index, line) in m3u8_response.lines().enumerate() {
