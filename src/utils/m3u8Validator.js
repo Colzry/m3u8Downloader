@@ -2,6 +2,7 @@ export const validateM3u8Url = async (url, options = {}) => {
   const defaultOptions = {
     checkContent: true,
     timeout: 3000,
+    headers: {},
     ...options
   };
   
@@ -33,7 +34,8 @@ export const validateM3u8Url = async (url, options = {}) => {
     // HEAD请求验证
     const headResponse = await fetch(url, {
       method: 'HEAD',
-      signal: controller.signal
+      signal: controller.signal,
+      headers: defaultOptions.headers
     });
     clearTimeout(timeoutId);
     

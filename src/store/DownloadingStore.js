@@ -292,7 +292,12 @@ export const useDownloadingStore = defineStore('Downloading', {
             threadCount: settingStore.threadCount,
             headers: item.headers || {}
         }).catch(err => { 
-            throw err;
+            this.cancelDownload(item.id);
+            this.$notify.error({
+              content: this.getItemById(item.id).title + '下载失败',
+              meta: err,
+              keepAliveOnHover: true
+            })
         });
       }
     },

@@ -75,7 +75,8 @@ pub async fn start_download(
         // 下载失败，从管理器移除任务（保留临时目录用于断点续传）
         manager.cancel_task(&id)
             .await
-            .map_err(|e| e.to_string())?;
+            .map_err(|e| format!("取消任务失败: {}", e))?;
+        return Err(e.to_string());
     }
 
     // 检查是否是因为取消而结束的

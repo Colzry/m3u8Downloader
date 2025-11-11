@@ -47,13 +47,15 @@ const rules = {
           reject(new Error('请输入视频m3u8链接'))
         }
         // URL格式校验
-        if (!/^https?:\/\//i.test(value)) {
+        if (!/^https?:\/\//i.test(value?.trim())) {
           reject(new Error('请输入正确格式的m3u8链接'))
         }
         try {
-          const result = await validateM3u8Url(value, {
+          updateHeadersObject();
+          const result = await validateM3u8Url(value?.trim(), {
             checkContent: true,
-            timeout: 6000
+            timeout: 6000,
+            headers: formValue.headers
           });
 
           if (!result.valid) {
@@ -193,19 +195,9 @@ const d_loading = ref(false);
 const nowDownloadHandle = async () => {
   d_loading.value = true
   const id = await addToListHandle()
-  if (id) {
-    downloadingStore.startDownload(id).catch(
-        err => {
-          downloadingStore.cancelDownload(id);
-          notification.error({
-            content: downloadingStore.getItemById(id).title + '下载失败',
-            meta: err,
-            // duration: 5000,
-            keepAliveOnHover: true
-          })
-        }
-    )
-  }
+    if (id) {
+        downloadingStore.startDownload(id).then();
+    }
   d_loading.value = false
 }
 
