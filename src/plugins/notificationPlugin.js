@@ -2,6 +2,7 @@ import { useNotification, useMessage } from 'naive-ui';
 
 /**
  * 创建 Pinia 插件，用于在所有 Store 中注入 Naive UI 的服务实例。
+ * 只有在 Pinia store 的 actions、getters 或 setup store 内部，才可以通过 this.$message 或者 this.$notify 访问
  * * @returns {Function} Pinia Plugin Function
  */
 export function createNotificationPlugin() {

@@ -1,7 +1,6 @@
 <script setup>
 import {useMessage} from "naive-ui";
 import { throttle } from 'lodash';
-
 const message = useMessage()
 const props = defineProps({
   id: {
@@ -107,6 +106,7 @@ const deleteTask = throttle(async () => {
           <span class="opera-btn" v-if="!isMerged && status === 0" @click="continueTask">继续下载</span>
           <!-- 等待中：显示取消等待 -->
           <span class="opera-btn" v-if="!isMerged && status === 1" @click="cancelTask">取消等待</span>
+          <span class="opera-btn" v-if="isMerged" @click="downloadedStore.showFileInExplorer(props.id)">打开</span>
         </div>
       </div>
       <div class="progress-wrap" v-if="!isMerged && status === 2">
@@ -167,11 +167,12 @@ const deleteTask = throttle(async () => {
       .title {
         width: 80%;
       }
+      .operation-wrap:last-child {
+        margin-right: 20px;
+      }
       .operation-wrap {
         display: flex;
         flex-direction: row;
-        gap: 10px;
-        margin-right: 20px;
         .opera-btn {
           display: inline-block;
           font-size: 0.8rem;

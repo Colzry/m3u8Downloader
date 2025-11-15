@@ -226,8 +226,8 @@ pub async fn download_m3u8(
     
     let client = Client::new();
     // 预处理headers，只验证一次
-    let valid_headers = preprocess_headers(&options.headers);
-    log::info!("headers: {:#?}", valid_headers);
+    let headers = preprocess_headers(&options.headers);
+    log::info!("headers: {:#?}", headers);
     
     // --- 步骤 1: 解析M3U8，收集所有分片信息 ---
     // 分片元数据文件路径
@@ -247,11 +247,12 @@ pub async fn download_m3u8(
     } else {
         // 第一次下载，需要解析M3U8文件
         // 解析M3U8文件内容
-        let m3u8_response = client.get(url).headers(valid_headers.clone()).send().await?.text().await?;
+        let request = client.get(url).headers(headers.clone());
+        let response = request.send().await?.text().await?;
      
         let mut current_encryption = None;
 
-        for (index, line) in m3u8_response.lines().enumerate() {
+        for (index, line) in response.lines().enumerate() {
             let line = line.trim();
             if line.starts_with("#EXT-X-KEY:") {
                 // 处理加密信息
@@ -270,7 +271,7 @@ pub async fn download_m3u8(
                     };
 
                     // 下载密钥文件
-                    let key_response = client.get(&key_url).headers(valid_headers.clone()).send().await?.bytes().await?;
+                    let key_response = client.get(&key_url).headers(headers.clone()).send().await?.bytes().await?;
                     let key = key_response.to_vec();
 
                     // 解析IV值
@@ -414,7 +415,7 @@ pub async fn download_m3u8(
         let cancelled = Arc::clone(&cancelled);
         let metrics = Arc::clone(&metrics);
         let manifest_writer = Arc::clone(&manifest_writer);
-        let headers = valid_headers.clone();
+        let headers = headers.clone();
 
         handles.push(tokio::spawn(async move {
             let _permit = semaphore.acquire().await?;
