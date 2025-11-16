@@ -84,12 +84,18 @@ const deleteTask = throttle(async () => {
     <div class="info-wrap">
       <div class="item-top">
         <div class="title text-ellipsis">{{ title }}</div>
-        <!-- 下载中：显示取消按钮 -->
-        <div class="operation-wrap" v-if="status === 2">
-          <span class="opera-btn" @click="cancelTask">取消</span>
-        </div>
-        <!-- 其他状态：显示删除、继续下载等按钮 -->
-        <div class="operation-wrap" v-else>
+        <div class="operation-wrap">
+          <!-- 未下载过：显示开始下载 -->
+          <span class="opera-btn" v-if="!isMerged && status === 10" @click="startTask">开始下载</span>
+          <!-- 已取消或已下载：显示继续下载 -->
+          <span class="opera-btn" v-if="!isMerged && status === 0" @click="continueTask">继续下载</span>
+          <!-- 等待中：显示取消等待 -->
+          <span class="opera-btn" v-if="!isMerged && status === 1" @click="cancelTask">取消等待</span>
+          <!-- 下载中：显示取消按钮 -->
+          <span class="opera-btn" v-if="!isMerged && status === 2" @click="cancelTask">取消</span>
+          <!-- 合并完成：显示打开 -->
+          <span class="opera-btn" v-if="isMerged && status === 5" @click="downloadedStore.showFileInExplorer(props.id)">打开</span>
+          <!-- 显示删除 -->
           <n-popconfirm
               positive-text="确认"
               negative-text="取消"
@@ -100,13 +106,6 @@ const deleteTask = throttle(async () => {
             </template>
             你确认要删除吗？
           </n-popconfirm>
-          <!-- 未下载过：显示开始下载 -->
-          <span class="opera-btn" v-if="!isMerged && status === 10" @click="startTask">开始下载</span>
-          <!-- 已取消或已下载：显示继续下载 -->
-          <span class="opera-btn" v-if="!isMerged && status === 0" @click="continueTask">继续下载</span>
-          <!-- 等待中：显示取消等待 -->
-          <span class="opera-btn" v-if="!isMerged && status === 1" @click="cancelTask">取消等待</span>
-          <span class="opera-btn" v-if="isMerged" @click="downloadedStore.showFileInExplorer(props.id)">打开</span>
         </div>
       </div>
       <div class="progress-wrap" v-if="!isMerged && status === 2">
