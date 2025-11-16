@@ -5,6 +5,7 @@ import { useSettingStore } from "@/store/SettingStore.js";
 import { open } from "@tauri-apps/plugin-dialog";
 import { openPath, openUrl } from "@tauri-apps/plugin-opener";
 import { appLogDir } from "@tauri-apps/api/path";
+import { HelpCircleOutline } from "@vicons/ionicons5";
 
 const version = import.meta.env.VITE_APP_VERSION;
 const settingStore = useSettingStore();
@@ -159,15 +160,23 @@ const openAppLogDirectory = async () => {
                     </div>
                     <div class="set-value">
                         <div style="margin-right: 5px; font: 1rem weight">
-                            日志级别：
+                            日志级别
                         </div>
                         <n-select
                             size="small"
-                            style="max-width: 100px"
+                            style="max-width: 100px; margin-left: 5px;"
                             v-model:value="settingStore.logLevel"
                             :options="LOG_LEVEL_OPTIONS"
                             placeholder="日志级别"
                         />
+                        <n-tooltip trigger="hover">
+                            <template #trigger>
+                                <n-icon size="1.2rem" style="cursor: pointer; margin-left: 5px;">
+                                    <HelpCircleOutline />
+                                </n-icon>
+                            </template>
+                            <span>该设置需要重启程序后生效</span>
+                        </n-tooltip>
                     </div>
                 </div>
             </div>
