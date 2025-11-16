@@ -1,10 +1,11 @@
-use std::ffi::OsStr;
-use std::fs;
+use chrono::Local;
 use fern::Dispatch;
 use log::LevelFilter;
-use chrono::Local;
+use std::ffi::OsStr;
+use std::fs;
 use std::path::PathBuf;
 use tauri::AppHandle;
+use tauri_plugin_store::StoreExt;
 
 pub mod rotate;
 
@@ -12,9 +13,7 @@ pub mod rotate;
 pub fn get_install_dir() -> Result<PathBuf, String> {
     let exe_path = std::env::current_exe().map_err(|e| e.to_string())?;
 
-    let install_dir = exe_path.parent()
-        .ok_or("找不到父目录")?
-        .to_path_buf();
+    let install_dir = exe_path.parent().ok_or("找不到父目录")?.to_path_buf();
 
     Ok(install_dir)
 }
@@ -53,6 +52,31 @@ fn detect_log_level_from_files(install_dir: &PathBuf) -> LevelFilter {
     LevelFilter::Info // 默认级别
 }
 
+/// 从 settings.dat 文件中读取日志级别
+fn detect_log_level_from_settings(app_handle: &AppHandle) -> Option<LevelFilter> {
+    // 尝试加载 settings.dat
+    let store_result = app_handle.store("settings.dat");
+    let store = match store_result {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("⚠️ 无法加载 settings.dat: {}", e);
+            return None;
+        }
+    };
+
+    // 确保数据已从磁盘加载
+    if let Err(e) = store.reload() {
+        eprintln!("⚠️ 无法从磁盘加载 settings.dat: {}", e);
+        return None;
+    }
+
+    // 从 Store 中获取 'logLevel' 键的值
+    store
+        .get("logLevel")
+        .and_then(|v| v.as_str().map(|s| s.to_owned()))
+        .and_then(|s| s.parse::<LevelFilter>().ok())
+}
+
 /// 初始化带有日志滚动的 logging 系统
 pub fn setup_logging(app_handle: &AppHandle) -> Result<(), String> {
     // 使用 AppHandle 获取日志目录
@@ -77,11 +101,17 @@ pub fn setup_logging(app_handle: &AppHandle) -> Result<(), String> {
         .open(log_file_path)
         .map_err(|e| e.to_string())?;
 
-    // 从安装目录检测级别
-    // 注意：如果 get_install_dir 失败（例如在 AppImage 中），这将回退到 Info 级别
-    let level = get_install_dir()
+    // 从 settings.dat 检测级别 (优先级最高)
+    let level_from_settings = detect_log_level_from_settings(app_handle);
+
+    // 从安装目录检测级别 (优先级第二)
+    let level_from_files = get_install_dir()
         .map(|dir| detect_log_level_from_files(&dir))
-        .unwrap_or(LevelFilter::Info);
+        .unwrap_or(LevelFilter::Info); // 如果 get_install_dir 失败，默认为 Info
+
+    // 最终日志级别：设置 > 文件 > 默认 Info
+    // 如果 level_from_settings 为 None，则回退到 level_from_files。
+    let level = level_from_settings.unwrap_or(level_from_files);
 
     Dispatch::new()
         .format(move |out, message, record| {

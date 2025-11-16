@@ -5,6 +5,7 @@ use std::fs;
 use sysinfo::{System, SystemExt};
 use tauri::{AppHandle, Emitter};
 use tauri_plugin_store::StoreExt;
+use serde_json::Value;
 
 #[tauri::command]
 pub async fn start_download(
@@ -172,19 +173,29 @@ pub async fn delete_file(file_path: String) -> Result<(), String> {
     Ok(())
 }
 
+/// 将设置项保存到 settings.dat
 #[tauri::command]
-pub async fn set_minimize_on_close(
-    minimize_on_close: bool,
+pub async fn save_settings(
+    settings_object: Value,
     app_handle: AppHandle,
 ) -> Result<(), String> {
-    let store = app_handle.store("settings.dat").unwrap();
-    let old_minimize_on_close: bool = store
-        .get("minimize_on_close")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(true); // 默认值 true
-    if minimize_on_close != old_minimize_on_close {
-        store.set("minimize_on_close", minimize_on_close);
-        store.save().expect("保存Store配置失败");
+    let store = app_handle.store("settings.dat")
+        .map_err(|e| format!("加载Store失败: {}", e))?;
+    
+    // 确保传入的是一个 JSON 对象
+    let settings_map = settings_object.as_object()
+        .ok_or("传入的设置不是有效的JSON对象")?;
+
+    // 批量更新 Store 的设置
+    for (key, value) in settings_map {
+        store.set(key, value.clone());
     }
+    
+    // 一次性保存所有更改
+    store.save()
+        .map_err(|e| format!("保存Store配置失败: {}", e))?;
+
+    log::debug!("✅ 设置 ({} 个键) 已保存到 settings.dat", settings_map.len());
+    
     Ok(())
 }

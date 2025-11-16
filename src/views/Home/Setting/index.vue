@@ -5,7 +5,6 @@ import { useSettingStore } from "@/store/SettingStore.js";
 import { open } from "@tauri-apps/plugin-dialog";
 import { openPath, openUrl } from "@tauri-apps/plugin-opener";
 import { appLogDir } from "@tauri-apps/api/path";
-import { invoke } from "@tauri-apps/api/core";
 
 const version = import.meta.env.VITE_APP_VERSION;
 const settingStore = useSettingStore();
@@ -21,6 +20,16 @@ const selectFolder = async () => {
     }
 };
 
+// 日志级别选项（与 Rust 的 LevelFilter 对应）
+const LOG_LEVEL_OPTIONS = [
+    { label: "Trace", value: "Trace" },
+    { label: "Debug", value: "Debug" },
+    { label: "Info", value: "Info" },
+    { label: "Warn", value: "Warn" },
+    { label: "Error", value: "Error" },
+    { label: "Off", value: "Off" },
+];
+
 const openAppLogDirectory = async () => {
     try {
         const logDirPath = await appLogDir();
@@ -29,13 +38,6 @@ const openAppLogDirectory = async () => {
         console.error("无法打开日志目录:", e);
     }
 };
-
-watch(
-    () => settingStore.minimizeOnClose,
-    (newVal, _oldVal) => {
-        invoke("set_minimize_on_close", { minimizeOnClose: newVal });
-    },
-);
 </script>
 
 <template>
@@ -134,21 +136,40 @@ watch(
                 </div>
                 <div class="set-item">
                     <div class="set-label">发布地址</div>
-                    <div class="set-value url" @click="openUrl('https://github.com/Colzry/m3u8Downloader')">
+                    <div
+                        class="set-value url"
+                        @click="
+                            openUrl('https://github.com/Colzry/m3u8Downloader')
+                        "
+                    >
                         https://github.com/Colzry/m3u8Downloader
                     </div>
                 </div>
             </div>
         </div>
-        
+
         <div class="other-setting set-wrap">
             <div class="o-title title">其他</div>
             <div class="set-items-wrap">
-                 <div class="set-item">
-                      <div class="set-label">
-                          <div class="select-dir" @click="openAppLogDirectory">打开日志目录</div>
-                      </div>
-                 </div>
+                <div class="set-item">
+                    <div class="set-label">
+                        <div class="select-dir" @click="openAppLogDirectory">
+                            打开日志目录
+                        </div>
+                    </div>
+                    <div class="set-value">
+                        <div style="margin-right: 5px; font: 1rem weight">
+                            日志级别：
+                        </div>
+                        <n-select
+                            size="small"
+                            style="max-width: 100px"
+                            v-model:value="settingStore.logLevel"
+                            :options="LOG_LEVEL_OPTIONS"
+                            placeholder="日志级别"
+                        />
+                    </div>
+                </div>
             </div>
         </div>
     </main-wrapper>
@@ -202,6 +223,8 @@ watch(
                 }
             }
             .set-value {
+                display: flex;
+                align-items: center;
                 flex: 7 1 0; /* 比例7，允许收缩，基准宽度0% */
             }
             .url {

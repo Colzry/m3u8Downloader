@@ -1,6 +1,5 @@
 use crate::commands::{
-    cancel_download, delete_download, delete_file, get_cpu_info, set_minimize_on_close,
-    start_download,
+    cancel_download, delete_download, delete_file, get_cpu_info, save_settings, start_download,
 };
 use crate::download_manager::DownloadManager;
 use tauri::tray::{MouseButton, TrayIconEvent};
@@ -72,7 +71,7 @@ pub fn run() {
                         .unwrap_or(true)
                     {
                         api.prevent_close(); // 阻止默认关闭行为
-                        
+
                         // 在 Linux 上，只最小化，不隐藏，避免窗口控件失效
                         #[cfg(target_os = "linux")]
                         {
@@ -96,7 +95,7 @@ pub fn run() {
             delete_download,
             get_cpu_info,
             delete_file,
-            set_minimize_on_close,
+            save_settings,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
