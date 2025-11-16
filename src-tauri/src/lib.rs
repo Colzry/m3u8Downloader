@@ -47,6 +47,7 @@ pub fn run() {
                 }
             }
         }))
+        .plugin(tauri_plugin_http::init())
         .plugin(tauri_plugin_dialog::init())
         .manage(DownloadManager::new()) // 注册下载全局状态管理
         .plugin(tauri_plugin_fs::init())

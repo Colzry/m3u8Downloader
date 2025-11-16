@@ -64,14 +64,9 @@ const rules = {
                 if (!value?.trim()) {
                     reject(new Error("请输入视频m3u8链接"));
                 }
-                // URL格式校验
-                if (!/^https?:\/\//i.test(value?.trim())) {
-                    reject(new Error("请输入正确格式的m3u8链接"));
-                }
                 try {
                     updateHeadersObject();
                     const result = await validateM3u8Url(value?.trim(), {
-                        checkContent: true,
                         timeout: 6000,
                         headers: formValue.headers,
                     });

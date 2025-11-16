@@ -86,19 +86,15 @@ impl DownloadManager {
 
     /// 删除任务并清除临时目录
     /// 
-    /// 用于完全删除任务，包括取消下载和清理所有临时文件
+    /// 删除任务和清理所有临时文件
     pub async fn delete_task(&self, id: &str) -> anyhow::Result<()> {
         let mut tasks = self.tasks.lock().await;
         if let Some(task) = tasks.remove(id) {
-            // 设置取消标志
-            task.cancel();
-            
             // 删除临时目录
             if tokio::fs::try_exists(&task.temp_dir).await.unwrap_or(false) {
                 tokio::fs::remove_dir_all(&task.temp_dir).await?;
                 log::info!("任务 [{}] 临时下载目录: {} 已删除", id, task.temp_dir);
             }
-            
             log::info!("任务 [{}] 已删除", id);
         } else {
             log::warn!("任务 [{}] 不存在", id);

@@ -135,6 +135,24 @@ const deleteDownloaded = async () => {
             <div class="item-top">
                 <div class="title text-ellipsis">{{ title }}</div>
                 <div class="operation-wrap">
+                    <!-- 显示删除 -->
+                    <n-popconfirm
+                        positive-text="确认"
+                        negative-text="取消"
+                        @positive-click="deleteTask"
+                        v-if="!isMerged"
+                    >
+                        <template #trigger>
+                            <span class="opera-btn">删除</span>
+                        </template>
+                        你确认要删除吗？
+                    </n-popconfirm>
+                    <span
+                        class="opera-btn"
+                        v-if="isMerged && status === 5"
+                        @click="deleteDownloaded"
+                        >删除</span
+                    >
                     <!-- 未下载过：显示开始下载 -->
                     <span
                         class="opera-btn"
@@ -169,24 +187,6 @@ const deleteDownloaded = async () => {
                         v-if="isMerged && status === 5"
                         @click="downloadedStore.showFileInExplorer(props.id)"
                         >打开</span
-                    >
-                    <!-- 显示删除 -->
-                    <n-popconfirm
-                        positive-text="确认"
-                        negative-text="取消"
-                        @positive-click="deleteTask"
-                        v-if="!isMerged"
-                    >
-                        <template #trigger>
-                            <span class="opera-btn">删除</span>
-                        </template>
-                        你确认要删除吗？
-                    </n-popconfirm>
-                    <span
-                        class="opera-btn"
-                        v-if="isMerged && status === 5"
-                        @click="deleteDownloaded"
-                        >删除</span
                     >
                 </div>
             </div>
