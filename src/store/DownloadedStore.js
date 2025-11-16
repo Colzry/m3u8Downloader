@@ -1,5 +1,4 @@
 import { defineStore } from "pinia";
-import { useSettingStore } from "@/store/SettingStore.js";
 import { invoke } from "@tauri-apps/api/core";
 
 export const useDownloadedStore = defineStore("Downloaded", {
@@ -70,12 +69,11 @@ export const useDownloadedStore = defineStore("Downloaded", {
         },
 
         // 移除下载项
-        async removeItem(id) {
-            const settingStore = useSettingStore();
+        async removeItem(id, isDeleteDownloadFile) {
             const item = this.getItemById(id);
             if (!item) return;
             this.items = this.items.filter((item) => item.id !== id);
-            if (settingStore.isDeleteDownloadFile) {
+            if (isDeleteDownloadFile) {
                 await invoke("delete_file", { filePath: item.file });
             }
             this.selectedItems = this.selectedItems.filter((i) => i !== id);

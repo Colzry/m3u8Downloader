@@ -8,7 +8,9 @@ if (import.meta.env.PROD) {
 <template>
     <n-message-provider>
         <n-notification-provider>
-            <RouterView />
+            <n-modal-provider>
+                <RouterView />
+            </n-modal-provider>
         </n-notification-provider>
     </n-message-provider>
 </template>

@@ -6,7 +6,7 @@ import { useDownloadedStore } from "@/store/DownloadedStore";
 import { useSettingStore } from "@/store/SettingStore.js";
 import DownloadItem from "@/views/Home/components/DownloadItem.vue";
 import { openFolder } from "@/utils/fs.js";
-import { useMessage } from "naive-ui";
+import { useModal, useMessage, NCheckbox } from "naive-ui";
 
 const downloadedStore = useDownloadedStore();
 const settingStore = useSettingStore();
@@ -32,17 +32,44 @@ const handleSelectItem = (id, selected) => {
     downloadedStore.toggleItemSelection(id);
 };
 
+import { h, ref } from "vue";
+const modal = useModal();
 const message = useMessage();
 const handleDeleteSelected = () => {
     if (downloadedStore.selectedItems.length === 0) {
         message.warning("请先选择需要操作的选项");
         return;
     }
-    downloadedStore.selectedItems.forEach((id) => {
-        downloadedStore.removeItem(id);
+    const isDeleteDownloadFile = settingStore.isDeleteDownloadFile;
+    const deleteFileRef = ref(isDeleteDownloadFile);
+    modal.create({
+        preset: "dialog",
+        type: "warning",
+        draggable: true,
+        title: "警告",
+        positiveText: "确定",
+        negativeText: "取消",
+
+        content: () => {
+            return h("div", null, [
+                h("div", { style: "margin: 12px 0;" }, "你确定要删除吗？"),
+                h(NCheckbox, {
+                    checked: deleteFileRef.value,
+                    "onUpdate:checked": (v) => {
+                        deleteFileRef.value = v;
+                    },
+                    label: "是否删除原文件 (本地磁盘文件)",
+                }),
+            ]);
+        },
+        onPositiveClick: () => {
+            downloadedStore.selectedItems.forEach((id) => {
+                downloadedStore.removeItem(id, deleteFileRef.value);
+            });
+            downloadedStore.clearSelectedItems();
+            message.success("删除成功");
+        },
     });
-    downloadedStore.clearSelectedItems();
-    message.success("删除成功");
 };
 
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -104,18 +131,13 @@ onUnmounted(() => {
                         />
                     </div>
                     <div class="opera-ctr">
-                        <n-popconfirm
-                            positive-text="确认"
-                            negative-text="取消"
-                            @positive-click="handleDeleteSelected"
+                        <n-button
+                            @click="handleDeleteSelected"
+                            size="small"
+                            type="error"
+                            ghost
+                            >删除</n-button
                         >
-                            <template #trigger>
-                                <n-button size="small" type="error" ghost
-                                    >删除</n-button
-                                >
-                            </template>
-                            你确认要删除吗？
-                        </n-popconfirm>
                     </div>
                 </div>
                 <download-item
