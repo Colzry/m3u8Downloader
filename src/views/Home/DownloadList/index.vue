@@ -4,7 +4,7 @@ import HButton from "@/views/Home/components/HButton.vue";
 import MainWrapper from "@/views/Home/components/MainWrapper.vue";
 import DownloadItem from "@/views/Home/components/DownloadItem.vue";
 import { validateM3u8Url } from "@/utils/m3u8Validator.js";
-import { useMessage, useNotification } from "naive-ui";
+import { useMessage } from "naive-ui";
 import { openFolder } from "@/utils/fs.js";
 import { throttle } from "lodash";
 import { ref, reactive } from "vue";
@@ -16,6 +16,7 @@ const formRef = ref(null);
 const formValue = reactive({
     videoUrl: "",
     videoName: "",
+    downloadPath: "",
     headers: {},
 });
 
@@ -194,7 +195,7 @@ const addToListHandle = throttle(
                 progress: 0,
                 status: 10,
                 url: formValue.videoUrl.trim(),
-                downloadPath: settingStore.downloadPath,
+                downloadPath: formValue.downloadPath,
                 headers: formValue.headers,
             });
 
@@ -215,6 +216,7 @@ const clickNewDownload = () => {
     Object.keys(formValue).forEach((key) => {
         delete formValue[key];
     });
+    formValue.downloadPath = settingStore.downloadPath;
 };
 
 const d_loading = ref(false);
@@ -270,6 +272,18 @@ const handleWindowResized = async () => {
 
     // 重置当前页
     downloadingStore.pagination.currentPage = 1;
+};
+
+import { open } from "@tauri-apps/plugin-dialog";
+const selectFolder = async () => {
+    const selectDirectory = await open({
+        directory: true,
+        multiple: false,
+        title: "选择下载目录",
+    });
+    if (selectDirectory) {
+        formValue.downloadPath = selectDirectory;
+    }
 };
 
 onMounted(async () => {
@@ -403,6 +417,20 @@ onUnmounted(() => {
                     placeholder="请输入视频名称"
                 />
             </n-form-item>
+            <div style="display: flex; align-items: center; margin-bottom: 10px;">
+                <div id="select-dir" @click="selectFolder">
+                    下载目录
+                </div>
+                <div style="flex: 1">
+                    <n-input
+                        type="text"
+                        size="small"
+                        placeholder="请选择下载目录"
+                        v-model:value="formValue.downloadPath"
+                        :disabled="true"
+                    />
+                </div>
+            </div>
 
             <!-- 高级选项折叠面板 -->
             <n-collapse>
@@ -520,6 +548,20 @@ onUnmounted(() => {
                 gap: 10px;
             }
         }
+    }
+}
+
+#select-dir {
+    display: inline-block;
+    margin-right: 3%;
+    padding: 2px 5px;
+    border: 1px solid #e2e2e2;
+    cursor: pointer;
+    border-radius: 5px;
+    transition: all 0.4s;
+    &:hover {
+        color: #18a058;
+        border-color: #18a058;
     }
 }
 </style>
