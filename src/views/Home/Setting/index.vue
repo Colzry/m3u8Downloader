@@ -3,6 +3,8 @@ import PageHeader from "@/views/Home/components/PageHeader.vue";
 import MainWrapper from "@/views/Home/components/MainWrapper.vue";
 import { useSettingStore } from "@/store/SettingStore.js";
 import { open } from "@tauri-apps/plugin-dialog";
+import { openPath, openUrl } from "@tauri-apps/plugin-opener";
+import { appLogDir } from "@tauri-apps/api/path";
 import { invoke } from "@tauri-apps/api/core";
 
 const version = import.meta.env.VITE_APP_VERSION;
@@ -18,6 +20,16 @@ const selectFolder = async () => {
         settingStore.downloadPath = selectDirectory;
     }
 };
+
+const openAppLogDirectory = async () => {
+    try {
+        const logDirPath = await appLogDir();
+        await openPath(logDirPath);
+    } catch (e) {
+        console.error("无法打开日志目录:", e);
+    }
+};
+
 watch(
     () => settingStore.minimizeOnClose,
     (newVal, _oldVal) => {
@@ -113,8 +125,8 @@ watch(
             </div>
         </div>
 
-        <div class="other-setting set-wrap">
-            <div class="o-title title">其他</div>
+        <div class="version set-wrap">
+            <div class="o-title title">版本</div>
             <div class="set-items-wrap">
                 <div class="set-item">
                     <div class="set-label">当前版本</div>
@@ -122,10 +134,21 @@ watch(
                 </div>
                 <div class="set-item">
                     <div class="set-label">发布地址</div>
-                    <div class="set-value">
+                    <div class="set-value url" @click="openUrl('https://github.com/Colzry/m3u8Downloader')">
                         https://github.com/Colzry/m3u8Downloader
                     </div>
                 </div>
+            </div>
+        </div>
+        
+        <div class="other-setting set-wrap">
+            <div class="o-title title">其他</div>
+            <div class="set-items-wrap">
+                 <div class="set-item">
+                      <div class="set-label">
+                          <div class="select-dir" @click="openAppLogDirectory">打开日志目录</div>
+                      </div>
+                 </div>
             </div>
         </div>
     </main-wrapper>
@@ -180,6 +203,14 @@ watch(
             }
             .set-value {
                 flex: 7 1 0; /* 比例7，允许收缩，基准宽度0% */
+            }
+            .url {
+                cursor: pointer;
+                transition: all 0.4s;
+                &:hover {
+                    color: #18a058;
+                    text-decoration: underline;
+                }
             }
         }
     }
