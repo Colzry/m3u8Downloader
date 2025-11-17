@@ -2,6 +2,7 @@
 //! 负责实时计算下载速度、检查任务状态（取消）
 //! 并通过 Tauri 事件（`download_progress`）向前端报告状态。
 
+use serde_json::json;
 use std::collections::VecDeque;
 use std::sync::{
     atomic::{AtomicBool, AtomicUsize, Ordering},
@@ -10,7 +11,6 @@ use std::sync::{
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter};
 use tokio::sync::Mutex;
-use serde_json::json;
 
 /// 下载指标跟踪结构体（增强版）
 /// 负责存储下载过程中的所有实时数据。
@@ -30,7 +30,7 @@ impl DownloadMetrics {
             total_bytes: Arc::new(AtomicUsize::new(0)),
             downloaded_bytes: Arc::new(AtomicUsize::new(0)),
             completed_chunks: Arc::new(AtomicUsize::new(0)),
-            speed_samples: Arc::new(Mutex::new(VecDeque::with_capacity(10)))
+            speed_samples: Arc::new(Mutex::new(VecDeque::with_capacity(10))),
         }
     }
 
@@ -90,7 +90,6 @@ impl DownloadMetrics {
     }
 }
 
-
 /// 运行下载监控任务
 /// 这是一个独立的 Tokio 任务，持续监听下载指标并向前端发送事件。
 pub async fn run_monitor_task(
@@ -111,20 +110,25 @@ pub async fn run_monitor_task(
 
             // --- 获取并构建状态数据 ---
             let is_cancelled = cancelled.load(Ordering::Relaxed);
-            let (speed_val, speed_unit) = metrics.get_windowed_speed().await;
             let progress = metrics.get_progress().await;
 
             let chunks_completed = metrics.completed_chunks.load(Ordering::Relaxed);
             let chunks_total = metrics.total_chunks;
 
-            // 如果所有分片都已完成，则状态为"正在合并"
+            // 所有分片都已下载完成
             let is_downloaded = chunks_total > 0 && chunks_completed == chunks_total;
+
+            let (speed_val, speed_unit) = if is_downloaded {
+                (0.0, "KB/s")
+            } else {
+                metrics.get_windowed_speed().await
+            };
 
             // 构建状态元数据
             let status_info = match (is_cancelled, is_downloaded) {
-                (true, _) => (0, "已取消"),          // cancelled
-                (false, false) => (2, "下载中"),     // downloading
-                (false, true) => (3, "下载完成"),    // merging
+                (true, _) => (0, "已取消"),       // cancelled
+                (false, false) => (2, "下载中"),  // downloading
+                (false, true) => (3, "下载完成"), // downloaded
             };
 
             /* status 0-已取消 1-等待中 2-下载中 3-下载完成 4-合并中 5-合并完成 10-初始化或新添加 400-合并失败 */
