@@ -514,7 +514,7 @@ pub async fn download_m3u8(
             cancelled.store(true, Ordering::SeqCst);
             // 等待速度监控任务退出
             speed_handle.await?;
-            return Err(anyhow::anyhow!("下载失败，部分分片缺失"));
+            return Err(anyhow::anyhow!("下载失败，部分分片缺失，可继续下载尝试"));
         }
     } else {
         log::info!("任务 [{}] 所有分片均已就绪，准备合并", id);

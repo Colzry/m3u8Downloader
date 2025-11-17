@@ -173,7 +173,6 @@ const cancelAddDownloadHandle = () => {
     Object.keys(formValue).forEach((key) => {
         delete formValue[key];
     });
-    message.success("已取消");
     showModal.value = false;
 };
 
@@ -279,6 +278,72 @@ const selectFolder = async () => {
     if (selectDirectory) {
         formValue.downloadPath = selectDirectory;
     }
+};
+
+const showRawHeadersModal = ref(false);
+const rawHeadersText = ref("");
+
+const handleAddRawHeaders = () => {
+    if (!rawHeadersText.value.trim()) {
+        message.warning("请输入请求头内容");
+        return;
+    }
+
+    try {
+        const lines = rawHeadersText.value.trim().split("\n");
+        let newEntries = [];
+
+        // 遍历每一行，尝试解析 Key: Value 格式
+        lines.forEach((line) => {
+            const trimmedLine = line.trim();
+            if (trimmedLine) {
+                const parts = trimmedLine.split(":");
+                if (parts.length >= 2) {
+                    const key = parts[0].trim();
+                    // 将剩余部分合并作为 value，因为 value 中可能包含冒号
+                    const value = parts.slice(1).join(":").trim();
+
+                    if (key && value) {
+                        // 检查是否已存在同名的 header，如果存在则跳过或覆盖
+                        // 这里选择覆盖已有的 User-Agent/Content-Type 等，以用户输入为准
+                        const existingIndex = headerEntries.value.findIndex(
+                            (entry) =>
+                                entry.key.trim().toLowerCase() ===
+                                key.toLowerCase(),
+                        );
+
+                        if (existingIndex !== -1) {
+                            headerEntries.value[existingIndex].value = value;
+                        } else {
+                            newEntries.push({ key, value });
+                        }
+                    }
+                }
+            }
+        });
+
+        // 将新的或更新的 Entries 合并到 headerEntries 中
+        headerEntries.value = [...headerEntries.value, ...newEntries];
+        // 过滤掉重复项 (基于 key 忽略大小写)
+        const keys = new Set();
+        headerEntries.value = headerEntries.value.filter((item) => {
+            const key = item.key.toLowerCase();
+            return keys.has(key) ? false : (keys.add(key), true);
+        });
+
+        // 成功处理后关闭 Modal
+        showRawHeadersModal.value = false;
+        rawHeadersText.value = ""; // 清空文本区域
+        message.success("请求头已批量添加/更新");
+    } catch (e) {
+        message.error("解析请求头失败，请检查格式");
+        console.error("Error parsing raw headers:", e);
+    }
+};
+
+const openRawHeadersModal = () => {
+    rawHeadersText.value = ""; // 每次打开前清空
+    showRawHeadersModal.value = true;
 };
 
 onMounted(async () => {
@@ -412,10 +477,10 @@ onUnmounted(() => {
                     placeholder="请输入视频名称"
                 />
             </n-form-item>
-            <div style="display: flex; align-items: center; margin-bottom: 10px;">
-                <div id="select-dir" @click="selectFolder">
-                    下载目录
-                </div>
+            <div
+                style="display: flex; align-items: center; margin-bottom: 10px"
+            >
+                <div id="select-dir" @click="selectFolder">下载目录</div>
                 <div style="flex: 1">
                     <n-input
                         type="text"
@@ -431,9 +496,26 @@ onUnmounted(() => {
             <n-collapse>
                 <n-collapse-item title="高级选项" name="advanced">
                     <div>
-                        <p style="margin-bottom: 10px; color: #666">
-                            自定义请求头（可选）
-                        </p>
+                        <div
+                            style="
+                                display: flex;
+                                align-items: center;
+                                justify-content: space-between;
+                            "
+                        >
+                            <p style="margin-bottom: 10px; color: #666">
+                                自定义请求头
+                            </p>
+                            <n-button
+                                @click="openRawHeadersModal"
+                                size="small"
+                                text
+                                type="info"
+                                style="margin-bottom: 10px; margin-left: 5px"
+                            >
+                                导入 Raw Headers
+                            </n-button>
+                        </div>
                         <div
                             v-for="(header, index) in headerEntries"
                             :key="index"
@@ -503,6 +585,39 @@ onUnmounted(() => {
                 type="primary"
                 @click="nowDownloadHandle"
                 >立即下载</n-button
+            >
+        </template>
+    </n-modal>
+
+    <n-modal
+        v-model:show="showRawHeadersModal"
+        :mask-closable="false"
+        :show-icon="false"
+        preset="dialog"
+        style="width: 500px"
+    >
+        <template #header>
+            <div>批量导入 Headers</div>
+        </template>
+        <div style="margin-bottom: 10px; color: #999">
+            可以粘贴从浏览器开发者工具复制的 Raw Headers 文本， 
+            格式应为Key: Value，一行一个。
+        </div>
+        <n-input
+            v-model:value="rawHeadersText"
+            placeholder="例如：
+User-Agent: Mozilla/5.0...
+Referer: https://example.com/
+Host: cdn.example.com"
+            type="textarea"
+            :rows="10"
+        />
+        <template #action>
+            <n-button size="small" ghost @click="showRawHeadersModal = false"
+                >取消</n-button
+            >
+            <n-button size="small" type="primary" @click="handleAddRawHeaders"
+                >确认添加</n-button
             >
         </template>
     </n-modal>

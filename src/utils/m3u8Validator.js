@@ -47,7 +47,7 @@ export const validateM3u8Url = async (url, options = {}) => {
         console.error(error);
         return {
             ...resultTemplate,
-            message: error.message || "验证过程中发生未知错误",
+            message: error.message || "验证过程中发生未知错误，可添加请求头后重试",
         };
     }
 };
