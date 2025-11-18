@@ -136,7 +136,7 @@ pub async fn run_monitor_task(
             // 生成当前事件数据
             let current_data = json!({
                 "id": id,
-                "progress": progress.round() as u32,
+                "progress": progress.floor() as u32,
                 "speed": format!("{:.2} {}", speed_val, speed_unit),
                 "status": status_info.0,
                 "message": status_info.1,

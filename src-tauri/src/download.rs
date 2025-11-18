@@ -482,7 +482,7 @@ pub async fn download_m3u8(
                 }
             }
             // 返回 Err 表示该 task 最终失败
-            Err(anyhow::anyhow!("分片 [{}] 所有尝试均失败", filename))
+            Err(anyhow::anyhow!("网络出现问题，某分片所有下载尝试均失败，下载已被取消，可尝试重新下载或者更换网络"))
         }));
     }
 
