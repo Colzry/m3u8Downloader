@@ -5,6 +5,7 @@
 
 #![allow(deprecated)]
 use crate::download_monitor::{run_monitor_task, DownloadMetrics};
+use reqwest::StatusCode;
 use crate::merge::merge_files;
 use anyhow::{anyhow, Result};
 use aes::Aes128;
@@ -209,6 +210,39 @@ struct SegmentMetadata {
     encryption: Option<EncryptionInfo>,
 }
 
+async fn validate_m3u8_response(status: StatusCode, text: &str, content_type: Option<&str>) -> Result<()> {
+    // 状态码验证
+    if !status.is_success() {
+        return Err(match status.as_u16() {
+            403 => anyhow::anyhow!("403 Forbidden：服务器拒绝访问，可能需要添加请求头"),
+            404 => anyhow::anyhow!("404 Not Found：地址无效或文件不存在"),
+            code => anyhow::anyhow!("请求失败，状态码：{}", code),
+        });
+    }
+    
+    // Content-Type 验证
+    if let Some(ct) = content_type {
+        let ct_lower = ct.to_lowercase();
+        if !(ct_lower.contains("mpegurl")
+            || ct_lower.contains("m3u8")
+            || ct_lower.contains("plain")
+            || ct_lower.contains("text")
+            || ct_lower.contains("application/octet-stream"))
+        {
+            return Err(anyhow::anyhow!("Content-Type 不匹配 M3U8 文件：{}", ct));
+        }
+    }
+
+    // 内容验证
+    if !text.trim_start().starts_with("#EXTM3U") {
+        return Err(anyhow::anyhow!(
+            "M3U8 内容无效：缺少 #EXTM3U 标识"
+        ));
+    }
+
+    Ok(())
+}
+
 /// M3U8下载主函数
 pub async fn download_m3u8(
     id: String,                       // 下载任务唯一标识
@@ -248,11 +282,21 @@ pub async fn download_m3u8(
         // 第一次下载，需要解析M3U8文件
         // 解析M3U8文件内容
         let request = client.get(url).headers(headers.clone());
-        let response = request.send().await?.text().await?;
+        let raw_response = request.send().await?;
+        let status = raw_response.status();
+        let content_type = raw_response
+            .headers()
+            .get("content-type")
+            .and_then(|v| v.to_str().ok())
+            .map(|s| s.to_string());
+        let response_text = raw_response.text().await?;
+        
+        // 验证 M3U8
+        validate_m3u8_response(status, &response_text, content_type.as_deref()).await?;
      
         let mut current_encryption = None;
 
-        for (index, line) in response.lines().enumerate() {
+        for (index, line) in response_text.lines().enumerate() {
             let line = line.trim();
             if line.starts_with("#EXT-X-KEY:") {
                 // 处理加密信息

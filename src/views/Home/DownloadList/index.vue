@@ -3,7 +3,6 @@ import PageHeader from "@/views/Home/components/PageHeader.vue";
 import HButton from "@/views/Home/components/HButton.vue";
 import MainWrapper from "@/views/Home/components/MainWrapper.vue";
 import DownloadItem from "@/views/Home/components/DownloadItem.vue";
-import { validateM3u8Url } from "@/utils/m3u8Validator.js";
 import { useMessage } from "naive-ui";
 import { openFolder } from "@/utils/fs.js";
 import { throttle } from "lodash";
@@ -58,27 +57,12 @@ const rules = {
     videoUrl: {
         required: true,
         trigger: ["blur"],
-        validator: (rule, value) => {
-            return new Promise(async (resolve, reject) => {
-                // 必填校验
-                if (!value?.trim()) {
-                    reject(new Error("请输入视频m3u8链接"));
-                }
-                try {
-                    updateHeadersObject();
-                    const result = await validateM3u8Url(value?.trim(), {
-                        timeout: 6000,
-                        headers: formValue.headers,
-                    });
-
-                    if (!result.valid) {
-                        reject(result.message);
-                    }
-                    resolve();
-                } catch (e) {
-                    reject(new Error(`验证失败：${e.message}`));
-                }
-            });
+        validator(rule, value) {
+            const v = value?.trim();
+            if (!v) return new Error("请输入视频m3u8链接");
+            if (!/^https?:\/\//i.test(v))
+                return new Error("URL必须以http或https开头");
+            return true;
         },
     },
     videoName: {
@@ -176,13 +160,16 @@ const cancelAddDownloadHandle = () => {
     showModal.value = false;
 };
 
+const join_loading = ref(false);
 const addToListHandle = throttle(
     async () => {
+        if (!d_loading.value) {
+            join_loading.value = true;
+        }
         try {
             await formRef.value?.validate();
             const id = crypto.randomUUID();
             updateHeadersObject();
-
             downloadingStore.addItem({
                 id,
                 title: formValue.videoName.trim(),
@@ -192,11 +179,12 @@ const addToListHandle = throttle(
                 downloadPath: formValue.downloadPath,
                 headers: formValue.headers,
             });
-
             message.success("添加成功");
             showModal.value = false;
+            join_loading.value = false;
             return id; // 成功返回 ID
         } catch (errors) {
+            join_loading.value = false;
             return null; // 验证失败返回 null
         }
     },
@@ -576,7 +564,12 @@ onUnmounted(() => {
             <n-button size="small" ghost @click="cancelAddDownloadHandle"
                 >取消</n-button
             >
-            <n-button size="small" type="info" ghost @click="addToListHandle"
+            <n-button
+                :loading="join_loading"
+                size="small"
+                type="info"
+                ghost
+                @click="addToListHandle"
                 >加入列表</n-button
             >
             <n-button
@@ -600,8 +593,8 @@ onUnmounted(() => {
             <div>批量导入 Headers</div>
         </template>
         <div style="margin-bottom: 10px; color: #999">
-            可以粘贴从浏览器开发者工具复制的 Raw Headers 文本， 
-            格式应为Key: Value，一行一个。
+            可以粘贴从浏览器开发者工具复制的 Raw Headers 文本， 格式应为Key:
+            Value，一行一个。
         </div>
         <n-input
             v-model:value="rawHeadersText"
