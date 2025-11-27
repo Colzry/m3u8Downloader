@@ -16,7 +16,7 @@ jobs:
         include:
           - platform: 'macos-latest'
             target: 'aarch64-apple-darwin'
-            args: '--target aarch64-apple-darwin --bundles app --config src-tauri/tauri.macos-aarch64.conf.json'
+            args: '--target aarch64-apple-darwin --config src-tauri/tauri.macos-aarch64.conf.json'
 
           - platform: 'macos-latest'
             target: 'x86_64-apple-darwin'
@@ -113,12 +113,12 @@ jobs:
           WIN_SIG=$(find artifacts -name "*.exe.sig" | head -n 1)
 
           # macOS ARM (aarch64)
-          MAC_ARM_FILE=m3u8Downloader_aarch64.app.tar.gz
-          MAC_ARM_SIG=$(find artifacts -name "*aarch64.app.tar.gz.sig" | head -n 1)
+          MAC_ARM_FILE=$(find artifacts -name "*aarch64.dmg" | head -n 1)
+          MAC_ARM_SIG=$(find artifacts -name "*aarch64.dmg.sig" | head -n 1)
 
           # macOS Intel (x86_64)
-          MAC_X64_FILE=m3u8Downloader_x64.app.tar.gz
-          MAC_X64_SIG=$(find artifacts -name "*x64.app.tar.gz.sig" | head -n 1)
+          MAC_X64_FILE=$(find artifacts -name "*x64.dmg" | head -n 1)
+          MAC_X64_SIG=$(find artifacts -name "*x64.dmg.sig" | head -n 1)
 
           # Linux (AppImage / deb / rpm 任意一种)
           LINUX_FILE=$(find artifacts -name "*.AppImage" -o -name "*.deb" -o -name "*.rpm" | head -n 1)
