@@ -113,12 +113,12 @@ jobs:
           WIN_SIG=$(find artifacts -name "*.exe.sig" | head -n 1)
 
           # macOS ARM (aarch64)
-          MAC_ARM_FILE=$(find artifacts -name "*aarch64.dmg" | head -n 1)
-          MAC_ARM_SIG=$(find artifacts -name "*aarch64.dmg.sig" | head -n 1)
+          MAC_ARM_FILE=$(find artifacts -path "*/aarch64-apple-darwin/*" -name "*aarch64.dmg" | head -n 1)
+          MAC_ARM_SIG=$(find artifacts -path "*/aarch64-apple-darwin/*" -name "*.app.tar.gz.sig" | head -n 1)
 
           # macOS Intel (x86_64)
-          MAC_X64_FILE=$(find artifacts -name "*x64.dmg" | head -n 1)
-          MAC_X64_SIG=$(find artifacts -name "*x64.dmg.sig" | head -n 1)
+          MAC_X64_FILE=$(find artifacts -path "*/x86_64-apple-darwin/*" -name "*x64.dmg" | head -n 1)
+          MAC_X64_SIG=$(find artifacts -path "*/x86_64-apple-darwin/*" -name "*.app.tar.gz.sig" | head -n 1)
 
           # Linux (AppImage / deb / rpm 任意一种)
           LINUX_FILE=$(find artifacts -name "*.AppImage" -o -name "*.deb" -o -name "*.rpm" | head -n 1)
