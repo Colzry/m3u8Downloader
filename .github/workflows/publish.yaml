@@ -101,7 +101,7 @@ jobs:
       # 生成支持 Win / macOS x2 / Linux 的 latest.json
       - name: Generate latest.json
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
+          VERSION="$GITHUB_REF_NAME"
           echo "Creating latest.json for version: $VERSION"
 
           # Windows
@@ -109,21 +109,21 @@ jobs:
           WIN_SIG=$(find artifacts -name "*.exe.sig" | head -n 1)
 
           # macOS ARM (aarch64)
-          MAC_ARM_FILE=$(find artifacts -name "*aarch64*.dmg" | head -n 1)
-          MAC_ARM_SIG=$(find artifacts -name "*aarch64*.dmg.sig" | head -n 1)
+          MAC_ARM_FILE=$(find artifacts -name "*aarch64.app.tar.gz" | head -n 1)
+          MAC_ARM_SIG=$(find artifacts -name "*aarch64.app.tar.gz.sig" | head -n 1)
 
           # macOS Intel (x86_64)
-          MAC_X64_FILE=$(find artifacts -name "*x86_64*.dmg" | head -n 1)
-          MAC_X64_SIG=$(find artifacts -name "*x86_64*.dmg.sig" | head -n 1)
+          MAC_X64_FILE=$(find artifacts -name "*x64.app.tar.gz" | head -n 1)
+          MAC_X64_SIG=$(find artifacts -name "*x64.app.tar.gz.sig" | head -n 1)
 
           # Linux (AppImage / deb / rpm 任意一种)
           LINUX_FILE=$(find artifacts -name "*.AppImage" -o -name "*.deb" -o -name "*.rpm" | head -n 1)
           LINUX_SIG=$(find artifacts -name "*.AppImage.sig" -o -name "*.deb.sig" -o -name "*.rpm.sig" | head -n 1)
 
-          SIG_WIN=$(cat "$WIN_SIG")
-          SIG_MAC_ARM=$(cat "$MAC_ARM_SIG")
-          SIG_MAC_X64=$(cat "$MAC_X64_SIG")
-          SIG_LINUX=$(cat "$LINUX_SIG")
+          [ -f "$WIN_SIG" ] && SIG_WIN=$(cat "$WIN_SIG") || SIG_WIN=""
+          [ -f "$MAC_ARM_SIG" ] && SIG_MAC_ARM=$(cat "$MAC_ARM_SIG") || SIG_MAC_ARM=""
+          [ -f "$MAC_X64_SIG" ] && SIG_MAC_X64=$(cat "$MAC_X64_SIG") || SIG_MAC_X64=""
+          [ -f "$LINUX_SIG" ] && SIG_LINUX=$(cat "$LINUX_SIG") || SIG_LINUX=""
 
           cat <<EOF > latest.json
           {
@@ -133,19 +133,19 @@ jobs:
             "platforms": {
               "windows-x86_64": {
                 "signature": "$SIG_WIN",
-                "url": "https://github.com/Colzry/m3u8Downloader/releases/download/v$VERSION/$(basename $WIN_FILE)"
+                "url": "https://github.com/Colzry/m3u8Downloader/releases/download/$VERSION/$(basename $WIN_FILE)"
               },
               "darwin-aarch64": {
                 "signature": "$SIG_MAC_ARM",
-                "url": "https://github.com/Colzry/m3u8Downloader/releases/download/v$VERSION/$(basename $MAC_ARM_FILE)"
+                "url": "https://github.com/Colzry/m3u8Downloader/releases/download/$VERSION/$(basename $MAC_ARM_FILE)"
               },
               "darwin-x86_64": {
                 "signature": "$SIG_MAC_X64",
-                "url": "https://github.com/Colzry/m3u8Downloader/releases/download/v$VERSION/$(basename $MAC_X64_FILE)"
+                "url": "https://github.com/Colzry/m3u8Downloader/releases/download/$VERSION/$(basename $MAC_X64_FILE)"
               },
               "linux-x86_64": {
                 "signature": "$SIG_LINUX",
-                "url": "https://github.com/Colzry/m3u8Downloader/releases/download/v$VERSION/$(basename $LINUX_FILE)"
+                "url": "https://github.com/Colzry/m3u8Downloader/releases/download/$VERSION/$(basename $LINUX_FILE)"
               }
             }
           }
