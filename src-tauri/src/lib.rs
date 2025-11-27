@@ -1,5 +1,5 @@
 use crate::commands::{
-    cancel_download, delete_download, delete_file, get_cpu_info, save_settings, start_download,
+    cancel_download, delete_download, delete_file, get_cpu_info, save_settings, start_download, check_update,
 };
 use crate::download_manager::DownloadManager;
 use tauri::tray::{MouseButton, TrayIconEvent};
@@ -25,6 +25,7 @@ pub fn run() {
 
     // 启动 Tauri 应用程序
     tauri::Builder::default()
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
             // 多次启动聚焦主窗口
             if let Some(window) = app.get_webview_window("main") {
@@ -97,6 +98,7 @@ pub fn run() {
             get_cpu_info,
             delete_file,
             save_settings,
+            check_update,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

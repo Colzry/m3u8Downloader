@@ -1,7 +1,12 @@
 {
-  "bundle": {
-    "resources": [
-      "bin/ffmpeg.exe"
-    ]
-  }
+    "bundle": {
+        "resources": ["bin/ffmpeg.exe"]
+    },
+    "plugins": {
+        "updater": {
+            "windows": {
+                "installMode": "passive"
+            }
+        }
+    }
 }

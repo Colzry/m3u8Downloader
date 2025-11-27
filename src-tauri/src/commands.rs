@@ -1,5 +1,6 @@
 use crate::download::{download_m3u8, DownloadOptions};
 use crate::download_manager::{DownloadManager, DownloadTask};
+use tauri_plugin_updater::UpdaterExt;
 use anyhow::Result;
 use std::fs;
 use sysinfo::{System, SystemExt};
@@ -197,5 +198,71 @@ pub async fn save_settings(
 
     log::debug!("✅ 设置 ({} 个键) 已保存到 settings.dat", settings_map.len());
     
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn check_update(app: tauri::AppHandle) -> Result<(), String> {
+    let updater = app.updater().map_err(|e| e.to_string())?;
+
+    // 通知前端开始检查更新
+    let _ = app.emit("update_status", serde_json::json!({
+        "status": "checking",
+        "message": "正在检查更新..."
+    }));
+
+    if let Some(update) = updater.check().await.map_err(|e| e.to_string())? {
+        // 有更新
+        let mut downloaded: u64 = 0;
+
+        // 通知前端开始下载
+        let _ = app.emit("update_status", serde_json::json!({
+            "status": "downloading",
+            "progress": 0,
+            "message": "发现新版本，开始下载..."
+        }));
+
+        update
+            .download_and_install(
+                |chunk_length, content_length| {
+                    downloaded += chunk_length as u64;
+                    let progress = if let Some(total) = content_length {
+                        (downloaded as f64 / total as f64 * 100.0).min(100.0)
+                    } else {
+                        0.0
+                    };
+                    let _ = app.emit("update_status", serde_json::json!({
+                        "status": "downloading",
+                        "progress": progress,
+                        "message": format!("下载中: {:.2}%", progress)
+                    }));
+                },
+                || {
+                    let _ = app.emit("update_status", serde_json::json!({
+                        "status": "finished",
+                        "progress": 100.0,
+                        "message": "下载完成，正在安装更新..."
+                    }));
+                },
+            )
+            .await
+            .map_err(|e| e.to_string())?;
+
+        let _ = app.emit("update_status", serde_json::json!({
+            "status": "installed",
+            "progress": 100.0,
+            "message": "更新安装完成，应用将重启"
+        }));
+
+        app.restart();
+    } else {
+        // 已是最新版本
+        let _ = app.emit("update_status", serde_json::json!({
+            "status": "latest",
+            "progress": 100.0,
+            "message": "已经是最新版本"
+        }));
+    }
+
     Ok(())
 }

@@ -6,6 +6,9 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { openPath, openUrl } from "@tauri-apps/plugin-opener";
 import { appLogDir } from "@tauri-apps/api/path";
 import { HelpCircleOutline } from "@vicons/ionicons5";
+import { ref, onMounted } from "vue";
+import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 
 const version = import.meta.env.VITE_APP_VERSION;
 const settingStore = useSettingStore();
@@ -37,6 +40,58 @@ const openAppLogDirectory = async () => {
         await openPath(logDirPath);
     } catch (e) {
         console.error("无法打开日志目录:", e);
+    }
+};
+
+const updateModalVisible = ref(false); // 控制模态框显示
+const updateProgress = ref(0); // 下载进度百分比
+const updateMessage = ref(""); // 下载状态文字
+const updateModalStatus = ref("checking"); // "checking" | "downloading" | "success" | "failed" | "latest"
+
+onMounted(() => {
+    // 监听 Rust 后端发过来的更新状态
+    listen("update_status", (event) => {
+        const { status, progress, message } = event.payload;
+
+        updateProgress.value = progress;
+        updateMessage.value = message;
+
+        if (status === "downloading") {
+            updateModalStatus.value = "downloading";
+        } else if (status === "latest") {
+            updateModalStatus.value = "latest";
+            setTimeout(() => {
+                updateModalVisible.value = false;
+            }, 3000);
+        } else if (status === "installed") {
+            updateModalStatus.value = "success";
+            setTimeout(() => {
+                updateModalVisible.value = false;
+            }, 3000);
+        } else if (status === "failed") {
+            updateModalStatus.value = "failed";
+            setTimeout(() => {
+                updateModalVisible.value = false;
+            }, 3000);
+        }
+    });
+});
+
+// 点击按钮触发更新
+const onCheckUpdateClick = async () => {
+    updateModalVisible.value = true;
+    updateProgress.value = 0;
+    updateMessage.value = "正在检查更新...";
+    updateModalStatus.value = "checking";
+    try {
+        await invoke("check_update");
+    } catch (e) {
+        updateMessage.value = "检查更新失败：" + e;
+        updateProgress.value = 0;
+        updateModalStatus.value = "failed";
+        setTimeout(() => {
+            updateModalVisible.value = false;
+        }, 3000);
     }
 };
 </script>
@@ -133,7 +188,18 @@ const openAppLogDirectory = async () => {
             <div class="set-items-wrap">
                 <div class="set-item">
                     <div class="set-label">当前版本</div>
-                    <div class="set-value">{{ version }}</div>
+                    <div class="set-value">
+                        <div class="version">{{ version }}</div>
+                        <div class="check-update" style="margin-left: 10px">
+                            <n-button
+                                ghost
+                                size="small"
+                                @click="onCheckUpdateClick"
+                            >
+                                检查更新
+                            </n-button>
+                        </div>
+                    </div>
                 </div>
                 <div class="set-item">
                     <div class="set-label">发布地址</div>
@@ -164,14 +230,17 @@ const openAppLogDirectory = async () => {
                         </div>
                         <n-select
                             size="small"
-                            style="max-width: 100px; margin-left: 5px;"
+                            style="max-width: 100px; margin-left: 5px"
                             v-model:value="settingStore.logLevel"
                             :options="LOG_LEVEL_OPTIONS"
                             placeholder="日志级别"
                         />
                         <n-tooltip trigger="hover">
                             <template #trigger>
-                                <n-icon size="1.2rem" style="cursor: pointer; margin-left: 5px;">
+                                <n-icon
+                                    size="1.2rem"
+                                    style="cursor: pointer; margin-left: 5px"
+                                >
                                     <HelpCircleOutline />
                                 </n-icon>
                             </template>
@@ -182,6 +251,58 @@ const openAppLogDirectory = async () => {
             </div>
         </div>
     </main-wrapper>
+
+    <n-modal
+        v-model:show="updateModalVisible"
+        title="检查更新"
+        :mask-closable="false"
+        :show-close="true"
+        :show-footer="false"
+        style="width: 400px"
+    >
+        <div
+            style="
+                margin-top: 10px;
+                display: flex;
+                padding: 2rem;
+                line-height: 1.5rem;
+                flex-direction: column;
+                align-items: center;
+            "
+        >
+            <p
+                :style="{
+                    color:
+                        updateModalStatus === 'failed'
+                            ? 'red'
+                            : updateModalStatus === 'success'
+                              ? '#1ba059'
+                              : updateModalStatus === 'latest'
+                                ? '#1ba059'
+                                : '#333',
+                    fontWeight: 500,
+                }"
+            >
+                {{ updateMessage }}
+            </p>
+
+            <n-progress
+                v-if="
+                    updateModalStatus === 'downloading' ||
+                    updateModalStatus === 'checking'
+                "
+                :value="updateProgress"
+                :show-value="true"
+                style="
+                    width: 100%;
+                    height: 18px;
+                    border-radius: 9px;
+                    margin-top: 10px;
+                "
+                :status="updateModalStatus === 'failed' ? 'error' : 'active'"
+            />
+        </div>
+    </n-modal>
 </template>
 
 <style scoped lang="less">
