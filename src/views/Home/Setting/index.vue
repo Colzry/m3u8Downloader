@@ -199,6 +199,17 @@ const onCheckUpdateClick = async () => {
                                 检查更新
                             </n-button>
                         </div>
+                        <n-tooltip trigger="hover">
+                            <template #trigger>
+                                <n-icon
+                                    size="1.2rem"
+                                    style="cursor: pointer; margin-left: 5px"
+                                >
+                                    <HelpCircleOutline />
+                                </n-icon>
+                            </template>
+                            <span>若更新失败可点击下面发布地址去下载安装</span>
+                        </n-tooltip>
                     </div>
                 </div>
                 <div class="set-item">
@@ -206,10 +217,10 @@ const onCheckUpdateClick = async () => {
                     <div
                         class="set-value url"
                         @click="
-                            openUrl('https://github.com/Colzry/m3u8Downloader')
+                            openUrl('https://github.com/Colzry/m3u8Downloader/releases')
                         "
                     >
-                        https://github.com/Colzry/m3u8Downloader
+                        https://github.com/Colzry/m3u8Downloader/releases
                     </div>
                 </div>
             </div>
@@ -258,7 +269,11 @@ const onCheckUpdateClick = async () => {
         :mask-closable="false"
         :show-close="true"
         :show-footer="false"
-        style="width: 400px"
+        :style="{
+            width: '400px',
+            borderRadius: '8px',
+        }"
+        :mask-style="{ backgroundColor: 'rgba(0,0,0,0.35)' }"
     >
         <div
             style="
@@ -268,6 +283,9 @@ const onCheckUpdateClick = async () => {
                 line-height: 1.5rem;
                 flex-direction: column;
                 align-items: center;
+                text-align: center;
+                background-color: #fff;
+                border-radius: 8px;
             "
         >
             <p
