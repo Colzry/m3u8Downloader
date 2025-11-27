@@ -67,8 +67,8 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
-          tagName: v__VERSION__
-          releaseName: "v__VERSION__"
+          tagName: ${{ github.ref_name }}
+          releaseName: ${{ github.ref_name }}
           releaseBody: "See the assets to download this version and install."
           releaseDraft: true
           prerelease: false
@@ -101,6 +101,10 @@ jobs:
       # 生成支持 Win / macOS x2 / Linux 的 latest.json
       - name: Generate latest.json
         run: |
+          echo "GITHUB_REF=$GITHUB_REF"
+          echo "GITHUB_REF_NAME=$GITHUB_REF_NAME"
+          echo "GITHUB_SHA=$GITHUB_SHA"
+          
           VERSION="$GITHUB_REF_NAME"
           echo "Creating latest.json for version: $VERSION"
 
