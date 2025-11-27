@@ -79,7 +79,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.target }}
-          path: src-tauri/target/release/bundle/**
+          path: src-tauri/target/release/bundle/**/*
           retention-days: 1
 
 
@@ -113,11 +113,11 @@ jobs:
           WIN_SIG=$(find artifacts -name "*.exe.sig" | head -n 1)
 
           # macOS ARM (aarch64)
-          MAC_ARM_FILE=$(find artifacts -name "*aarch64.app.tar.gz" | head -n 1)
+          MAC_ARM_FILE=m3u8Downloader_aarch64.app.tar.gz
           MAC_ARM_SIG=$(find artifacts -name "*aarch64.app.tar.gz.sig" | head -n 1)
 
           # macOS Intel (x86_64)
-          MAC_X64_FILE=$(find artifacts -name "*x64.app.tar.gz" | head -n 1)
+          MAC_X64_FILE=m3u8Downloader_x64.app.tar.gz
           MAC_X64_SIG=$(find artifacts -name "*x64.app.tar.gz.sig" | head -n 1)
 
           # Linux (AppImage / deb / rpm 任意一种)
