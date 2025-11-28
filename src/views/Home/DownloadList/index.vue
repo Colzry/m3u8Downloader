@@ -5,17 +5,17 @@ import MainWrapper from "@/views/Home/components/MainWrapper.vue";
 import DownloadItem from "@/views/Home/components/DownloadItem.vue";
 import { useMessage } from "naive-ui";
 import { openFolder } from "@/utils/fs.js";
-import { throttle } from "lodash";
 import { ref, reactive } from "vue";
 
 const message = useMessage();
 const showModal = ref(false);
 const formRef = ref(null);
 
-const formValue = reactive({
+const formData = reactive({
     videoUrl: "",
     videoName: "",
     downloadPath: "",
+    batchText: "",
     headers: {},
 });
 
@@ -153,62 +153,112 @@ const handleDownloadSelected = async () => {
     message.success("开始下载");
 };
 
+// 创建下载
+const clickNewDownload = () => {
+    showModal.value = true;
+    resetHeaders(); // 统一重置headers
+    Object.keys(formData).forEach((key) => {
+        delete formData[key];
+    });
+    formData.downloadPath = settingStore.downloadPath;
+};
+
+// 取消创建下载
 const cancelAddDownloadHandle = () => {
-    Object.keys(formValue).forEach((key) => {
-        delete formValue[key];
+    Object.keys(formData).forEach((key) => {
+        delete formData[key];
     });
     showModal.value = false;
 };
 
+// 将下载项添加进列表
+const addToListHandle = (item) => {
+    const id = crypto.randomUUID();
+    updateHeadersObject();
+    downloadingStore.addItem({
+        id,
+        title: item.videoName.trim(),
+        progress: 0,
+        status: 10,
+        url: item.videoUrl.trim(),
+        downloadPath: formData.downloadPath,
+        headers: formData.headers,
+    });
+    return id; // 成功返回 ID
+};
+
+// 切换下载模式：单个下载 / 批量下载
+const downloadMode = ref("single");
 const join_loading = ref(false);
-const addToListHandle = throttle(
-    async () => {
-        if (!d_loading.value) {
-            join_loading.value = true;
-        }
+// 创建下载-加入列表回调
+const handleAddClick = () => {
+    if (!d_loading.value) {
+        join_loading.value = true;
+    }
+    if (downloadMode.value === "single") {
         try {
-            await formRef.value?.validate();
-            const id = crypto.randomUUID();
-            updateHeadersObject();
-            downloadingStore.addItem({
-                id,
-                title: formValue.videoName.trim(),
-                progress: 0,
-                status: 10,
-                url: formValue.videoUrl.trim(),
-                downloadPath: formValue.downloadPath,
-                headers: formValue.headers,
+            formRef.value?.validate();
+            addToListHandle({
+                videoName: formData.videoName,
+                videoUrl: formData.videoUrl,
             });
             message.success("添加成功");
+            join_loading.value = false;
             showModal.value = false;
+        } catch (e) {
             join_loading.value = false;
-            return id; // 成功返回 ID
-        } catch (errors) {
-            join_loading.value = false;
-            return null; // 验证失败返回 null
+            return null; // 验证失败
         }
-    },
-    2000,
-    { leading: true, trailing: false },
-);
-
-const clickNewDownload = () => {
-    showModal.value = true;
-    resetHeaders(); // 统一重置headers
-    Object.keys(formValue).forEach((key) => {
-        delete formValue[key];
-    });
-    formValue.downloadPath = settingStore.downloadPath;
+    } else {
+        try {
+            const items = parseBatch(formData.batchText);
+            items.forEach((item) => {
+                addToListHandle(item);
+            });
+            message.success("添加成功");
+            join_loading.value = false;
+            showModal.value = false;
+        } catch (e) {
+            join_loading.value = false;
+            message.error(e.message);
+        }
+    }
 };
 
 const d_loading = ref(false);
-const nowDownloadHandle = async () => {
+// 创建下载-立即下载回调
+const handleNowClick = () => {
     d_loading.value = true;
-    const id = await addToListHandle();
-    if (id) {
-        downloadingStore.startDownload(id).then();
+    if (downloadMode.value === "single") {
+        try {
+            formRef.value?.validate();
+            const id = addToListHandle({
+                videoName: formData.videoName,
+                videoUrl: formData.videoUrl,
+            });
+            downloadingStore.startDownload(id).then();
+            message.success("开始下载");
+            d_loading.value = false;
+            showModal.value = false;
+        } catch {
+            d_loading.value = false;
+            return null; // 验证失败
+        }
+    } else {
+        try {
+            const items = parseBatch(formData.batchText);
+            items.forEach((item) => {
+                const id = addToListHandle(item);
+                downloadingStore.startDownload(id).then();
+            });
+            message.success("开始下载");
+            d_loading.value = false;
+            showModal.value = false;
+        } catch (e) {
+            d_loading.value = false;
+            message.error(e.message);
+        }
     }
-    d_loading.value = false;
 };
 
 // 添加 Header 输入框
@@ -233,7 +283,7 @@ const updateHeadersObject = () => {
             headers[entry.key] = entry.value;
         }
     });
-    formValue.headers = headers;
+    formData.headers = headers;
 };
 
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -264,7 +314,7 @@ const selectFolder = async () => {
         title: "选择下载目录",
     });
     if (selectDirectory) {
-        formValue.downloadPath = selectDirectory;
+        formData.downloadPath = selectDirectory;
     }
 };
 
@@ -327,6 +377,62 @@ const handleAddRawHeaders = () => {
         message.error("解析请求头失败，请检查格式");
         console.error("Error parsing raw headers:", e);
     }
+};
+
+// 解析批量内容 → 数组
+const parseBatch = (batchText) => {
+    if (!batchText || !batchText.trim()) {
+        throw new Error("内容不能为空");
+    }
+
+    const lines = batchText
+        .split("\n")
+        .map((v) => v.trim())
+        .filter(Boolean);
+
+    if (lines.length === 0) {
+        throw new Error("内容无效");
+    }
+
+    // 必须两行一组
+    if (lines.length % 2 !== 0) {
+        throw new Error("批量内容格式错误：必须一行链接，一行名称成对出现");
+    }
+
+    const items = [];
+    const urlSet = new Set();
+
+    for (let i = 0; i < lines.length; i += 2) {
+        const url = lines[i];
+        const name = lines[i + 1];
+
+        // URL 校验
+        if (!/^https?:\/\//i.test(url)) {
+            throw new Error(`第 ${i + 1} 行不是有效的 URL:\n${url}`);
+        }
+
+        // 如果希望强制 m3u8 可以开这个判断（目前仅提示）：
+        if (!url.includes(".m3u8")) {
+            throw new Error(`URL 第 ${i + 1} 行不是 m3u8 文件：${url}`);
+        }
+
+        // 名称校验
+        const finalName =
+            name && name.trim() ? name.trim() : `未命名_${i / 2 + 1}`;
+
+        // 重复 URL 检查
+        if (urlSet.has(url)) {
+            throw new Error(`重复的 URL：${url}`);
+        }
+        urlSet.add(url);
+
+        items.push({
+            videoUrl: url,
+            videoName: finalName,
+        });
+    }
+
+    return items;
 };
 
 const openRawHeadersModal = () => {
@@ -446,137 +552,168 @@ onUnmounted(() => {
         <template #header>
             <div>新建下载</div>
         </template>
-        <n-form
-            ref="formRef"
-            label-placement="left"
-            label-width="auto"
-            :model="formValue"
-            :rules="rules"
-        >
-            <n-form-item label="视频链接" path="videoUrl">
-                <n-input
-                    v-model:value="formValue.videoUrl"
-                    placeholder="请输入视频m3u8链接"
-                />
-            </n-form-item>
-            <n-form-item label="视频名称" path="videoName">
-                <n-input
-                    v-model:value="formValue.videoName"
-                    placeholder="请输入视频名称"
-                />
-            </n-form-item>
-            <div
-                style="display: flex; align-items: center; margin-bottom: 10px"
-            >
-                <div id="select-dir" @click="selectFolder">下载目录</div>
-                <div style="flex: 1">
-                    <n-input
-                        type="text"
-                        size="small"
-                        placeholder="请选择下载目录"
-                        v-model:value="formValue.downloadPath"
-                        :disabled="true"
-                    />
-                </div>
-            </div>
 
-            <!-- 高级选项折叠面板 -->
-            <n-collapse>
-                <n-collapse-item title="高级选项" name="advanced">
-                    <div>
-                        <div
-                            style="
-                                display: flex;
-                                align-items: center;
-                                justify-content: space-between;
-                            "
-                        >
-                            <p style="margin-bottom: 10px; color: #666">
-                                自定义请求头
-                            </p>
-                            <n-button
-                                @click="openRawHeadersModal"
-                                size="small"
-                                text
-                                type="info"
-                                style="margin-bottom: 10px; margin-left: 5px"
-                            >
-                                导入 Raw Headers
-                            </n-button>
-                        </div>
-                        <div
-                            v-for="(header, index) in headerEntries"
-                            :key="index"
-                            style="
-                                margin-bottom: 10px;
-                                display: flex;
-                                align-items: center;
-                            "
-                        >
-                            <n-input
-                                v-model:value="header.key"
-                                placeholder="Key"
-                                style="width: 37%; margin-right: 3%"
-                            />
-                            <template
-                                v-if="
-                                    header.key.trim().toLowerCase() ===
-                                    'user-agent'
-                                "
-                            >
-                                <n-select
-                                    v-model:value="header.value"
-                                    :options="userAgentOptions"
-                                    style="width: 50%"
-                                    placeholder="选择User-Agent"
-                                    allow-input
-                                />
-                            </template>
-                            <template v-else>
-                                <n-input
-                                    v-model:value="header.value"
-                                    placeholder="Value"
-                                    style="width: 50%"
-                                />
-                            </template>
-                            <n-button
-                                @click="removeHeader(index)"
-                                text
-                                type="error"
-                                style="width: 10%"
-                            >
-                                ×
-                            </n-button>
-                        </div>
+        <!-- TAB 切换：单个下载 / 批量下载 -->
+        <n-tabs v-model:value="downloadMode" type="line">
+            <!-- ================== 单个下载 ================== -->
+            <n-tab-pane name="single" tab="单个下载">
+                <n-form
+                    ref="formRef"
+                    label-placement="left"
+                    label-width="auto"
+                    :model="formData"
+                    :rules="rules"
+                >
+                    <n-form-item label="视频链接" path="videoUrl">
+                        <n-input
+                            v-model:value="formData.videoUrl"
+                            placeholder="请输入视频 m3u8 链接"
+                        />
+                    </n-form-item>
+                    <n-form-item label="视频名称" path="videoName">
+                        <n-input
+                            v-model:value="formData.videoName"
+                            placeholder="请输入视频名称"
+                        />
+                    </n-form-item>
+                </n-form>
+            </n-tab-pane>
+
+            <!-- ================== 批量下载 ================== -->
+            <n-tab-pane name="batch" tab="批量下载">
+                <n-input
+                    type="textarea"
+                    v-model:value="formData.batchText"
+                    :rows="6"
+                    style="margin-bottom: 10px"
+                    placeholder="一行地址一行名称（自动配对）
+示例：
+https://example.com/a.m3u8
+电影A
+https://example.com/b.m3u8
+电影B"
+                />
+            </n-tab-pane>
+        </n-tabs>
+
+        <!-- ================== 高级设置 ================== -->
+        <n-collapse>
+            <n-collapse-item title="高级设置" name="advanced">
+                <div>
+                    <div
+                        style="
+                            display: flex;
+                            align-items: center;
+                            justify-content: space-between;
+                        "
+                    >
+                        <p style="margin-bottom:10px; color: #666">
+                            自定义请求头
+                        </p>
                         <n-button
-                            @click="addHeader"
+                            @click="openRawHeadersModal"
                             size="small"
                             text
-                            type="primary"
+                            type="info"
+                            style="margin-bottom: 10px; margin-left: 5px"
                         >
-                            + 添加 Header
+                            导入 Raw Headers
                         </n-button>
                     </div>
-                </n-collapse-item>
-            </n-collapse>
-        </n-form>
+
+                    <!-- header 列表 -->
+                    <div
+                        v-for="(header, index) in headerEntries"
+                        :key="index"
+                        style="
+                            margin-bottom: 10px;
+                            display: flex;
+                            align-items: center;
+                        "
+                    >
+                        <n-input
+                            v-model:value="header.key"
+                            placeholder="Key"
+                            style="width: 37%; margin-right: 3%"
+                        />
+
+                        <template
+                            v-if="
+                                header.key.trim().toLowerCase() === 'user-agent'
+                            "
+                        >
+                            <n-select
+                                v-model:value="header.value"
+                                :options="userAgentOptions"
+                                style="width: 50%"
+                                placeholder="选择 User-Agent"
+                                allow-input
+                            />
+                        </template>
+                        <template v-else>
+                            <n-input
+                                v-model:value="header.value"
+                                placeholder="Value"
+                                style="width: 50%"
+                            />
+                        </template>
+
+                        <n-button
+                            @click="removeHeader(index)"
+                            text
+                            type="error"
+                            style="width: 10%"
+                        >
+                            ×
+                        </n-button>
+                    </div>
+
+                    <n-button
+                        @click="addHeader"
+                        size="small"
+                        text
+                        type="primary"
+                    >
+                        + 添加 Header
+                    </n-button>
+                </div>
+
+                <!-- 下载目录选择 -->
+                <p style="margin: 10px 0; color: #666">下载目录选择</p>
+                <div style="display: flex; align-items: center; margin: 10px 0">
+                    <div id="select-dir" @click="selectFolder">下载目录</div>
+                    <div style="flex: 1">
+                        <n-input
+                            size="small"
+                            placeholder="请选择下载目录"
+                            v-model:value="formData.downloadPath"
+                            :disabled="true"
+                        />
+                    </div>
+                </div>
+            </n-collapse-item>
+        </n-collapse>
+
+        <!-- 底部按钮 -->
         <template #action>
             <n-button size="small" ghost @click="cancelAddDownloadHandle"
                 >取消</n-button
             >
+
             <n-button
                 :loading="join_loading"
                 size="small"
                 type="info"
                 ghost
-                @click="addToListHandle"
+                @click="handleAddClick"
                 >加入列表</n-button
             >
+
             <n-button
                 :loading="d_loading"
                 size="small"
                 type="primary"
-                @click="nowDownloadHandle"
+                @click="handleNowClick"
                 >立即下载</n-button
             >
         </template>
@@ -592,13 +729,11 @@ onUnmounted(() => {
         <template #header>
             <div>批量导入 Headers</div>
         </template>
-        <div style="margin-bottom: 10px; color: #999">
-            可以粘贴从浏览器开发者工具复制的 Raw Headers 文本， 格式应为Key:
-            Value，一行一个。
-        </div>
         <n-input
             v-model:value="rawHeadersText"
-            placeholder="例如：
+            placeholder="可以粘贴从浏览器开发者工具复制的 Raw Headers 文本，
+格式应为Key: Value，一行一个。
+例如：
 User-Agent: Mozilla/5.0...
 Referer: https://example.com/
 Host: cdn.example.com"
