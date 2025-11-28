@@ -153,14 +153,18 @@ const handleDownloadSelected = async () => {
     message.success("开始下载");
 };
 
+// 切换下载模式：单个下载 / 批量下载
+const downloadMode = ref("single");
+
 // 创建下载
 const clickNewDownload = () => {
-    showModal.value = true;
-    resetHeaders(); // 统一重置headers
+    downloadMode.value = "single";
     Object.keys(formData).forEach((key) => {
         delete formData[key];
     });
     formData.downloadPath = settingStore.downloadPath;
+    showModal.value = true;
+    resetHeaders(); // 统一重置headers
 };
 
 // 取消创建下载
@@ -186,8 +190,6 @@ const addToListHandle = (item) => {
     return id; // 成功返回 ID
 };
 
-// 切换下载模式：单个下载 / 批量下载
-const downloadMode = ref("single");
 const join_loading = ref(false);
 // 创建下载-加入列表回调
 const handleAddClick = () => {
@@ -209,7 +211,7 @@ const handleAddClick = () => {
             join_loading.value = false;
             return null; // 验证失败
         }
-    } else {
+    } else if (downloadMode.value === "batch") {
         try {
             const items = parseBatch(formData.batchText);
             items.forEach((item) => {
@@ -245,7 +247,7 @@ const handleNowClick = () => {
             d_loading.value = false;
             return null; // 验证失败
         }
-    } else {
+    } else if (downloadMode.value === "batch") {
         try {
             const items = parseBatch(formData.batchText);
             items.forEach((item) => {
@@ -608,7 +610,7 @@ https://example.com/b.m3u8
                             justify-content: space-between;
                         "
                     >
-                        <p style="margin-bottom:10px; color: #666">
+                        <p style="margin-bottom: 10px; color: #666">
                             自定义请求头
                         </p>
                         <n-button

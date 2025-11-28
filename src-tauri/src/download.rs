@@ -333,6 +333,7 @@ pub async fn download_m3u8(
 
             // 收集TS分片任务
             if line.ends_with(".ts") {
+                 // TS 分片如果是完整 URL，直接使用
                 let ts_url = if line.starts_with("http") {
                     line.to_string()
                 } else if line.starts_with('/') {
