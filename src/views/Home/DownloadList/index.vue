@@ -174,7 +174,6 @@ const cancelAddDownloadHandle = () => {
 // 将下载项添加进列表
 const addToListHandle = (item) => {
     const id = crypto.randomUUID();
-    updateHeadersObject();
     downloadingStore.addItem({
         id,
         title: item.videoName.trim(),
@@ -195,6 +194,7 @@ const handleAddClick = () => {
     if (!d_loading.value) {
         join_loading.value = true;
     }
+    updateHeadersObject();
     if (downloadMode.value === "single") {
         try {
             formRef.value?.validate();
@@ -229,6 +229,7 @@ const d_loading = ref(false);
 // 创建下载-立即下载回调
 const handleNowClick = () => {
     d_loading.value = true;
+    updateHeadersObject();
     if (downloadMode.value === "single") {
         try {
             formRef.value?.validate();
