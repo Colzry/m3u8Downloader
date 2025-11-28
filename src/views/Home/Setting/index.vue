@@ -55,7 +55,7 @@ onMounted(() => {
 
         updateProgress.value = progress;
         updateMessage.value = message;
-
+        
         if (status === "downloading") {
             updateModalStatus.value = "downloading";
         } else if (status === "latest") {
@@ -309,15 +309,17 @@ const onCheckUpdateClick = async () => {
                     updateModalStatus === 'downloading' ||
                     updateModalStatus === 'checking'
                 "
-                :value="updateProgress"
-                :show-value="true"
+                :percentage="updateProgress"
+                :show-indicator="false"
+                type="line"
+                processing
                 style="
                     width: 100%;
                     height: 18px;
                     border-radius: 9px;
                     margin-top: 10px;
                 "
-                :status="updateModalStatus === 'failed' ? 'error' : 'active'"
+                :status="updateModalStatus === 'failed' ? 'error' : 'success'"
             />
         </div>
     </n-modal>

@@ -233,14 +233,14 @@ pub async fn check_update(app: tauri::AppHandle) -> Result<(), String> {
                     };
                     let _ = app.emit("update_status", serde_json::json!({
                         "status": "downloading",
-                        "progress": progress,
+                        "progress": progress.floor() as u32,
                         "message": format!("下载中: {:.2}%", progress)
                     }));
                 },
                 || {
                     let _ = app.emit("update_status", serde_json::json!({
                         "status": "finished",
-                        "progress": 100.0,
+                        "progress": 100,
                         "message": "下载完成，正在安装更新..."
                     }));
                 },
@@ -250,7 +250,7 @@ pub async fn check_update(app: tauri::AppHandle) -> Result<(), String> {
 
         let _ = app.emit("update_status", serde_json::json!({
             "status": "installed",
-            "progress": 100.0,
+            "progress": 100,
             "message": "更新安装完成，应用将重启"
         }));
 
@@ -259,7 +259,7 @@ pub async fn check_update(app: tauri::AppHandle) -> Result<(), String> {
         // 已是最新版本
         let _ = app.emit("update_status", serde_json::json!({
             "status": "latest",
-            "progress": 100.0,
+            "progress": 100,
             "message": "已经是最新版本"
         }));
     }
