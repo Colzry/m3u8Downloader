@@ -7,6 +7,7 @@ use sysinfo::{System, SystemExt};
 use tauri::{AppHandle, Emitter};
 use tauri_plugin_store::StoreExt;
 use serde_json::Value;
+use std::time::Duration;
 
 #[tauri::command]
 pub async fn start_download(
@@ -253,7 +254,7 @@ pub async fn check_update(app: tauri::AppHandle) -> Result<(), String> {
             "progress": 100,
             "message": "更新安装完成，应用将重启"
         }));
-
+        tokio::time::sleep(Duration::from_secs(2)).await;
         app.restart();
     } else {
         // 已是最新版本

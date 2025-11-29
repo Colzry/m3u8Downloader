@@ -306,8 +306,7 @@ const onCheckUpdateClick = async () => {
 
             <n-progress
                 v-if="
-                    updateModalStatus === 'downloading' ||
-                    updateModalStatus === 'checking'
+                    updateModalStatus === 'downloading'
                 "
                 :percentage="updateProgress"
                 :show-indicator="false"
