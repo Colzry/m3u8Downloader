@@ -1,5 +1,6 @@
 use crate::commands::{
-    cancel_download, delete_download, delete_file, get_cpu_info, save_settings, start_download, check_update,
+    cancel_download, check_update, delete_download, delete_file, get_cpu_info, save_settings,
+    save_store_file, start_download,
 };
 use crate::download_manager::DownloadManager;
 use tauri::tray::{MouseButton, TrayIconEvent};
@@ -99,6 +100,7 @@ pub fn run() {
             delete_file,
             save_settings,
             check_update,
+            save_store_file,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

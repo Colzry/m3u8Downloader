@@ -1,13 +1,13 @@
 use crate::download::{download_m3u8, DownloadOptions};
 use crate::download_manager::{DownloadManager, DownloadTask};
-use tauri_plugin_updater::UpdaterExt;
 use anyhow::Result;
+use serde_json::Value;
 use std::fs;
+use std::time::Duration;
 use sysinfo::{System, SystemExt};
 use tauri::{AppHandle, Emitter};
 use tauri_plugin_store::StoreExt;
-use serde_json::Value;
-use std::time::Duration;
+use tauri_plugin_updater::UpdaterExt;
 
 #[tauri::command]
 pub async fn start_download(
@@ -42,11 +42,11 @@ pub async fn start_download(
     } else {
         log::info!("任务 [{}] 临时目录已存在，继续下载: {}", id, &temp_dir);
     }
-    
+
     // 创建任务并添加到管理器
     let task = DownloadTask::new(temp_dir.clone());
     let cancelled = task.get_cancel_flag();
-    
+
     manager
         .add_task(id.clone(), task)
         .await
@@ -57,7 +57,7 @@ pub async fn start_download(
     if let Some(headers_map) = headers {
         options.headers = headers_map;
     }
-    
+
     // 开始下载 TS 文件到临时目录
     let download_result = download_m3u8(
         id.clone(),
@@ -76,7 +76,8 @@ pub async fn start_download(
     if let Err(e) = &download_result {
         log::error!("{} 下载失败: {}", id, e);
         // 下载失败，从管理器移除任务（保留临时目录用于断点续传）
-        manager.cancel_task(&id)
+        manager
+            .cancel_task(&id)
             .await
             .map_err(|e| format!("取消任务失败: {}", e))?;
         return Err(e.to_string());
@@ -104,7 +105,7 @@ pub async fn start_download(
 }
 
 /// 取消下载任务
-/// 
+///
 /// 1. 取消正在运行的下载任务
 /// 2. 从管理器中移除任务
 /// 3. 保留临时目录以支持断点续传
@@ -114,14 +115,12 @@ pub async fn cancel_download(
     manager: tauri::State<'_, DownloadManager>,
 ) -> Result<(), String> {
     log::info!("取消下载任务: {} (保留临时目录)", id);
-    manager.cancel_task(&id)
-        .await
-        .map_err(|e| e.to_string())?;
+    manager.cancel_task(&id).await.map_err(|e| e.to_string())?;
     Ok(())
 }
 
 /// 删除下载任务并清理临时目录
-/// 
+///
 /// 1. 取消正在运行的任务（如果存在）
 /// 2. 从管理器中移除任务
 /// 3. 删除临时目录和所有下载进度
@@ -132,19 +131,21 @@ pub async fn delete_download(
     manager: tauri::State<'_, DownloadManager>,
 ) -> Result<(), String> {
     log::info!("删除下载任务: {}", id);
-    
+
     // 1. 先检查任务是否在管理器中
     let task_exists = manager.task_exists(&id).await;
-    
+
     if task_exists {
         // 任务正在运行，调用 delete_task（会取消并删除临时目录）
-        manager.delete_task(&id).await
+        manager
+            .delete_task(&id)
+            .await
             .map_err(|e| format!("删除任务失败: {}", e))?;
     } else {
         // 任务不在管理器中（已完成或未开始），直接删除临时目录
         log::info!("任务不在管理器中，直接删除临时目录");
         let temp_dir = format!("{}/temp_{}", output_dir, id);
-        
+
         if tokio::fs::try_exists(&temp_dir).await.unwrap_or(false) {
             tokio::fs::remove_dir_all(&temp_dir)
                 .await
@@ -177,28 +178,69 @@ pub async fn delete_file(file_path: String) -> Result<(), String> {
 
 /// 将设置项保存到 settings.dat
 #[tauri::command]
-pub async fn save_settings(
-    settings_object: Value,
-    app_handle: AppHandle,
-) -> Result<(), String> {
-    let store = app_handle.store("settings.dat")
+pub async fn save_settings(settings_object: Value, app_handle: AppHandle) -> Result<(), String> {
+    let store = app_handle
+        .store("settings.dat")
         .map_err(|e| format!("加载Store失败: {}", e))?;
-    
+
     // 确保传入的是一个 JSON 对象
-    let settings_map = settings_object.as_object()
+    let settings_map = settings_object
+        .as_object()
         .ok_or("传入的设置不是有效的JSON对象")?;
 
     // 批量更新 Store 的设置
     for (key, value) in settings_map {
         store.set(key, value.clone());
     }
-    
+
     // 一次性保存所有更改
-    store.save()
+    store
+        .save()
         .map_err(|e| format!("保存Store配置失败: {}", e))?;
 
-    log::debug!("✅ 设置 ({} 个键) 已保存到 settings.dat", settings_map.len());
-    
+    log::debug!(
+        "设置已保存到 settings.dat 中(共{} 个键)",
+        settings_map.len()
+    );
+
+    Ok(())
+}
+
+/// 将设置保存到指定的 store 文件
+#[tauri::command]
+pub async fn save_store_file(
+    file_name: String,
+    settings_object: Value,
+    app_handle: AppHandle,
+) -> Result<(), String> {
+    if file_name.trim().is_empty() {
+        return Err("文件名不能为空".into());
+    }
+
+    let store = app_handle
+        .store(&file_name)
+        .map_err(|e| format!("加载Store失败({}): {}", file_name, e))?;
+
+    // 确保输入是 JSON 对象
+    let settings_map = settings_object
+        .as_object()
+        .ok_or("传入的设置不是有效的JSON对象")?;
+
+    // 写入所有 key-value
+    for (key, value) in settings_map {
+        store.set(key, value.clone());
+    }
+
+    store
+        .save()
+        .map_err(|e| format!("保存 Store({}) 失败: {}", file_name, e))?;
+
+    log::info!(
+        "设置已保存到 {} 中(共{} 个键)",
+        file_name,
+        settings_map.len()
+    );
+
     Ok(())
 }
 
@@ -207,21 +249,27 @@ pub async fn check_update(app: tauri::AppHandle) -> Result<(), String> {
     let updater = app.updater().map_err(|e| e.to_string())?;
 
     // 通知前端开始检查更新
-    let _ = app.emit("update_status", serde_json::json!({
-        "status": "checking",
-        "message": "正在检查更新..."
-    }));
+    let _ = app.emit(
+        "update_status",
+        serde_json::json!({
+            "status": "checking",
+            "message": "正在检查更新..."
+        }),
+    );
 
     if let Some(update) = updater.check().await.map_err(|e| e.to_string())? {
         // 有更新
         let mut downloaded: u64 = 0;
 
         // 通知前端开始下载
-        let _ = app.emit("update_status", serde_json::json!({
-            "status": "downloading",
-            "progress": 0,
-            "message": "发现新版本，开始下载..."
-        }));
+        let _ = app.emit(
+            "update_status",
+            serde_json::json!({
+                "status": "downloading",
+                "progress": 0,
+                "message": "发现新版本，开始下载..."
+            }),
+        );
 
         update
             .download_and_install(
@@ -232,37 +280,49 @@ pub async fn check_update(app: tauri::AppHandle) -> Result<(), String> {
                     } else {
                         0.0
                     };
-                    let _ = app.emit("update_status", serde_json::json!({
-                        "status": "downloading",
-                        "progress": progress.floor() as u32,
-                        "message": format!("下载中: {:.2}%", progress)
-                    }));
+                    let _ = app.emit(
+                        "update_status",
+                        serde_json::json!({
+                            "status": "downloading",
+                            "progress": progress.floor() as u32,
+                            "message": format!("下载中: {:.2}%", progress)
+                        }),
+                    );
                 },
                 || {
-                    let _ = app.emit("update_status", serde_json::json!({
-                        "status": "finished",
-                        "progress": 100,
-                        "message": "下载完成，正在安装更新..."
-                    }));
+                    let _ = app.emit(
+                        "update_status",
+                        serde_json::json!({
+                            "status": "finished",
+                            "progress": 100,
+                            "message": "下载完成，正在安装更新..."
+                        }),
+                    );
                 },
             )
             .await
             .map_err(|e| e.to_string())?;
 
-        let _ = app.emit("update_status", serde_json::json!({
-            "status": "installed",
-            "progress": 100,
-            "message": "更新安装完成，应用将重启"
-        }));
+        let _ = app.emit(
+            "update_status",
+            serde_json::json!({
+                "status": "installed",
+                "progress": 100,
+                "message": "更新安装完成，应用将重启"
+            }),
+        );
         tokio::time::sleep(Duration::from_secs(2)).await;
         app.restart();
     } else {
         // 已是最新版本
-        let _ = app.emit("update_status", serde_json::json!({
-            "status": "latest",
-            "progress": 100,
-            "message": "已经是最新版本"
-        }));
+        let _ = app.emit(
+            "update_status",
+            serde_json::json!({
+                "status": "latest",
+                "progress": 100,
+                "message": "已经是最新版本"
+            }),
+        );
     }
 
     Ok(())
