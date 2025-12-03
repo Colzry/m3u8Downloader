@@ -124,7 +124,7 @@ export const useDownloadedStore = defineStore("Downloaded", {
                 });
                 console.log(`文件已在资源管理器中显示: ${file}`);
             } catch (error) {
-                this.$message.error("文件不存在或已删除");
+                this.$message.error("文件已被移动或删除");
                 console.error("无法在资源管理器中显示文件:", error);
             }
         },

@@ -599,6 +599,19 @@ https://example.com/b.m3u8
             </n-tab-pane>
         </n-tabs>
 
+        <!-- 下载目录选择 -->
+        <div style="display: flex; align-items: center; margin-bottom: 10px">
+            <div id="select-dir" @click="selectFolder">下载目录</div>
+            <div style="flex: 1">
+                <n-input
+                    size="small"
+                    placeholder="请选择下载目录"
+                    v-model:value="formData.downloadPath"
+                    :disabled="true"
+                />
+            </div>
+        </div>
+        
         <!-- ================== 高级设置 ================== -->
         <n-collapse>
             <n-collapse-item title="高级设置" name="advanced">
@@ -679,20 +692,6 @@ https://example.com/b.m3u8
                     >
                         + 添加 Header
                     </n-button>
-                </div>
-
-                <!-- 下载目录选择 -->
-                <p style="margin: 10px 0; color: #666">下载目录选择</p>
-                <div style="display: flex; align-items: center; margin: 10px 0">
-                    <div id="select-dir" @click="selectFolder">下载目录</div>
-                    <div style="flex: 1">
-                        <n-input
-                            size="small"
-                            placeholder="请选择下载目录"
-                            v-model:value="formData.downloadPath"
-                            :disabled="true"
-                        />
-                    </div>
                 </div>
             </n-collapse-item>
         </n-collapse>

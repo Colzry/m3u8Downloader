@@ -168,7 +168,7 @@ const onCheckUpdateClick = async () => {
                     </div>
                 </div>
                 <div class="set-item">
-                    <div class="set-label">下载线程数</div>
+                    <div class="set-label">单个下载线程数</div>
                     <div class="set-value">
                         <n-input-number
                             size="small"
@@ -378,7 +378,7 @@ const onCheckUpdateClick = async () => {
             }
             .url {
                 cursor: pointer;
-                transition: all 0.4s;
+                transition: all 0.2s;
                 &:hover {
                     color: #18a058;
                     text-decoration: underline;
