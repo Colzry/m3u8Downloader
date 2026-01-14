@@ -302,8 +302,8 @@ export const useDownloadingStore = defineStore("Downloading", {
                     outputDir: item.downloadPath,
                     threadCount: settingStore.threadCount,
                     headers: item.headers || {},
-                }).catch((err) => {
-                    this.cancelDownload(item.id);
+                }).catch(async (err) => {
+                    await this.cancelDownload(item.id);
                     this.$notify.error({
                         content: this.getItemById(item.id).title + "下载失败",
                         meta: err,
