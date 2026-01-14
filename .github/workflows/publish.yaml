@@ -73,6 +73,7 @@ jobs:
           releaseDraft: true
           prerelease: false
           args: ${{ matrix.args }}
+          includeSignature: false
 
       # 上传构建产物作为 artifacts
       - name: Upload artifacts
@@ -157,9 +158,6 @@ jobs:
 
           echo "latest.json created:"
           cat latest.json
-          # === 删除所有下载下来的 .sig 文件，防止被后续步骤误传 ===
-          find artifacts -name "*.sig" -type f -delete
-          echo ".sig files removed from artifacts directory."
 
       - name: Upload latest.json to release
         uses: softprops/action-gh-release@v1
