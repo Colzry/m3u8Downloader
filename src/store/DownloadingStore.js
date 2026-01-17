@@ -218,6 +218,12 @@ export const useDownloadingStore = defineStore("Downloading", {
         async startDownload(taskId) {
             const settingStore = useSettingStore();
             const downloadedStore = useDownloadedStore();
+          
+            const currentItem = this.getItemById(taskId);
+            if (!currentItem || currentItem.status === 2) {
+                return; 
+            }
+          
             // 如果达到最大并发数，设置为等待状态
             if (this.checkMaxDownloads(taskId)) return;
 
@@ -332,7 +338,7 @@ export const useDownloadingStore = defineStore("Downloading", {
 
             // 启动这些任务
             for (const task of waitingTasks) {
-                await this.startDownload(task.id);
+                this.startDownload(task.id);
             }
         },
     },
