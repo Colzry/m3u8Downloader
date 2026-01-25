@@ -465,7 +465,7 @@ pub async fn download_m3u8(
         handles.push(tokio::spawn(async move {
             let _permit = semaphore.acquire().await?;
 
-            const MAX_RETRIES: usize = 15;
+            const MAX_RETRIES: usize = 99;
             for attempt in 1..=MAX_RETRIES {
                 if cancelled.load(Ordering::Relaxed) {
                     return Ok::<(), anyhow::Error>(());

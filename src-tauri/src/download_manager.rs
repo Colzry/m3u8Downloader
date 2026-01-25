@@ -60,7 +60,7 @@ impl DownloadManager {
         // 检查是否已经存在同ID的任务
         if tasks.contains_key(&id) {
             log::warn!("任务 [{}] 已存在，拒绝重复添加。", id);
-            return Err(anyhow::anyhow!("任务 ID [{}] 正在运行，请勿重复启动。", id));
+            return Ok(());
         }
         
         tasks.insert(id.clone(), task);

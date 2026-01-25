@@ -314,6 +314,7 @@ export const useDownloadingStore = defineStore("Downloading", {
                         content: this.getItemById(item.id).title + "下载失败",
                         meta: err,
                         keepAliveOnHover: true,
+                        duration: 5000,
                     });
                 });
             }
