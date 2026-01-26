@@ -762,16 +762,19 @@ Host: cdn.example.com"
     position: relative;
 
     .empty-ctr {
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
         display: flex;
-        justify-content: center; /* 控制垂直方向上的对齐 */
-        align-items: center; /* 控制水平方向上的对齐 */
-        height: 84vh;
+        justify-content: center; /* 控制水平方向居中 */
+        align-items: center; /* 控制垂直方向居中 */
     }
 
     .list-wrap {
         display: flex;
         flex-direction: column; /* 设置主轴为垂直方向 */
-        //justify-content: center; /* 控制垂直方向上的对齐 */
         align-items: center; /* 控制水平方向上的对齐 */
         width: 100%;
         .multi-choice-ctr {
@@ -779,7 +782,6 @@ Host: cdn.example.com"
             display: flex;
             justify-content: space-between;
             align-items: center;
-            //background-color: #e2e2e2;
             padding: 1rem 0;
 
             .opera-ctr {
