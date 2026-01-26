@@ -99,66 +99,76 @@ pub async fn run_monitor_task(
     app_handle: AppHandle,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
-        // 创建定时器并消耗初始触发
-        let mut interval = tokio::time::interval(Duration::from_millis(1000));
-        interval.tick().await;
+        // 创建定时器
+        // 将检查周期缩短到 100ms，确保取消指令响应迅速
+        let mut interval = tokio::time::interval(Duration::from_millis(100));
 
+        // 记录上一次发送事件的时间
+        // 初始化为 1 秒前，确保任务启动时能立即发送第一次状态
+        let mut last_emit_time = Instant::now() - Duration::from_secs(1);
         let mut last_data: Option<serde_json::Value> = None;
         loop {
-            // 等待下一个周期
+            // 定时器触发
             interval.tick().await;
 
             // --- 获取并构建状态数据 ---
             let is_cancelled = cancelled.load(Ordering::Relaxed);
-            let progress = metrics.get_progress().await;
-
             let chunks_completed = metrics.completed_chunks.load(Ordering::Relaxed);
             let chunks_total = metrics.total_chunks;
-
-            // 所有分片都已下载完成
             let is_downloaded = chunks_total > 0 && chunks_completed == chunks_total;
+            let final_state = is_cancelled || is_downloaded;
 
-            let (speed_val, speed_unit) = if is_downloaded {
-                (0.0, "KB/s")
-            } else {
-                metrics.get_windowed_speed().await
-            };
+            let now = Instant::now();
+            let time_since_last_emit = now.duration_since(last_emit_time).as_millis();
 
-            // 构建状态元数据
-            let status_info = match (is_cancelled, is_downloaded) {
-                (true, _) => (0, "已取消"),       // cancelled
-                (false, false) => (2, "下载中"),  // downloading
-                (false, true) => (3, "下载完成"), // downloaded
-            };
+            // 只有满足以下任一条件时才发送事件：
+            // 1. 距离上次发送已超过 1000ms (限制更新频率)
+            // 2. 任务已完成或被取消 (必须立即反馈给 UI)
+            if time_since_last_emit >= 1000 || final_state {
+                let progress = metrics.get_progress().await;
 
-            /* status 0-已取消 1-等待中 2-下载中 3-下载完成 4-合并中 5-合并完成 10-初始化或新添加 400-合并失败 */
+                let (speed_val, speed_unit) = if final_state {
+                    (0.0, "KB/s") // 结束状态速度归零
+                } else {
+                    metrics.get_windowed_speed().await
+                };
 
-            // 生成当前事件数据
-            let current_data = json!({
-                "id": id,
-                "progress": progress.floor() as u32,
-                "speed": format!("{:.2} {}", speed_val, speed_unit),
-                "status": status_info.0,
-                "message": status_info.1,
-                "isMerged": false,
-                "details": {
-                    "chunks": chunks_completed,
-                    "total_chunks": chunks_total,
-                    "downloaded": metrics.downloaded_bytes.load(Ordering::Relaxed),
-                    "total_bytes": metrics.total_bytes.load(Ordering::Relaxed),
+                // 构建状态元数据
+                let status_info = match (is_cancelled, is_downloaded) {
+                    (true, _) => (0, "已取消"),       // cancelled
+                    (false, false) => (2, "下载中"),  // downloading
+                    (false, true) => (3, "下载完成"), // downloaded
+                };
+
+                // 生成当前事件数据
+                let current_data = json!({
+                    "id": id,
+                    "progress": progress.floor() as u32,
+                    "speed": format!("{:.2} {}", speed_val, speed_unit),
+                    "status": status_info.0,
+                    "message": status_info.1,
+                    "isMerged": false,
+                    "details": {
+                        "chunks": chunks_completed,
+                        "total_chunks": chunks_total,
+                        "downloaded": metrics.downloaded_bytes.load(Ordering::Relaxed),
+                        "total_bytes": metrics.total_bytes.load(Ordering::Relaxed),
+                    }
+                });
+
+                // 发送事件 (去重检查)
+                if last_data.as_ref() != Some(&current_data) {
+                    app_handle
+                        .emit("download_progress", current_data.clone())
+                        .ok();
+                    last_data = Some(current_data);
                 }
-            });
 
-            // 发送事件 (去重检查)
-            if last_data.as_ref() != Some(&current_data) {
-                app_handle
-                    .emit("download_progress", current_data.clone())
-                    .ok();
-                last_data = Some(current_data);
+                last_emit_time = now;
             }
 
-            // 退出条件：任务被取消或进入合并状态
-            if is_cancelled || is_downloaded {
+            // 检测到取消或完成，发送完最后一条事件后立即退出，释放线程资源
+            if final_state {
                 break;
             }
         }
