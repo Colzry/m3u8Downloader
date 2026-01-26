@@ -14,23 +14,23 @@
 <img src="asset/2.png">
 <img src="asset/3.png">
 
-## 📘 项目简介
-该项目是一个基于 Rust + Tokio + Tauri 构建的高性能 M3U8 视频下载器桌面应用。它实现了以下功能：
-- ✅ 支持 M3U8 地址解析和分片下载
-- 🔐 自动识别并解密 AES-128 编码的 ts 分片
-- ⚙️ 支持控制并发大小
-- 📈 实时显示下载速度与进度
-- 🎬 使用 FFmpeg 合并 .ts 到最终 .mp4 文件
-- ▶️ ⏸️ ❌ 支持暂停、恢复、取消下载任务
-- 🧪 自动验证 ts 分片格式有效性，防止无效文件污染合并结果
-- ✨ 断点续传下载支持，程序重启后能精确从上次的分片下载开始，保证恢复下载的一致性
-- 🛡️ 智能重试策略，引入指数退避和随机抖动机制，大幅提高了网络波动下的下载成功率
-- 📡 支持自定义请求头（Custom Headers），可添加Referer、User-Agent、Cookie等HTTP头部信息，绕过网站反爬虫限制
+## 下载
+[点击去下载使用](https://github.com/Colzry/m3u8Downloader/releases)
 
-## 🚀 下载
-[点击去下载](https://github.com/Colzry/m3u8Downloader/releases)
+## 项目简介
+该项目是基于 Rust + Tokio + Tauri 构建的高性能 M3U8 视频下载器桌面应用。实现了以下功能：
+- 支持 M3U8 地址解析和分片下载
+- 自动识别并解密 AES-128 编码的 ts 分片
+- 支持控制并发大小
+- 实时显示下载速度与进度
+- 使用 FFmpeg 合并 .ts 到最终 .mp4 文件
+- 支持暂停、恢复、取消下载任务
+- 自动验证 ts 分片格式有效性，防止无效文件污染合并结果
+- 断点续传下载支持，程序重启后能精确从上次的分片下载开始，保证恢复下载的一致性
+- 智能重试策略，引入指数退避和随机抖动机制，大幅提高了网络波动下的下载成功率
+- 支持自定义请求头（Custom Headers），可添加Referer、User-Agent、Cookie等HTTP头部信息，绕过网站反爬虫限制
 
-## 🛠️ 技术栈
+## 技术栈
 ### 后端 :
 
 - Rust: 提供内存安全和高性能的底层支持。
@@ -47,14 +47,14 @@
 - NaiveUI: 一套基于 Vue 3 和 TypeScript 的高质量组件库，风格简洁现代，提供丰富的开箱即用组件（如按钮、表格、弹窗等），完美适配管理系统和工具类应用。
 - Pinia: Vue 的新一代状态管理方案，相比 Vuex 更加类型友好、模块化清晰且易于使用，适用于中大型项目的全局状态管理。
 
-## ⚙️ 开发环境准备
+## 开发环境准备
 ### 安装必要工具链：
  - Rust 工具链 安装 [Rust](https://www.rust-lang.org/zh-CN/tools/install) (rustup)
 - Node.js & 包管理器 (pnpm/yarn/npm)
 - tauri/cli:
 `npm install -g @tauri-apps/cli`
 
-## 💻 快速启动 & 运行项目
+## 快速启动 & 运行项目
 ```bash
 # 克隆仓库
 git clone https://github.com/Colzry/m3u8Downloader.git
@@ -65,7 +65,7 @@ yarn install    # 或 yarn, pnpm
 yarn tauri dev
 ```
 
-## 🔨 构建与打包（生产）
+## 构建与打包（生产）
 ```bash
 # 生产打包
 yarn tauri build
@@ -75,8 +75,8 @@ src-tauri/target/release/bundle/
 ```
 
 
-## 🤝 贡献指南
-我们欢迎任何形式的贡献！如果你想为这个项目做出贡献，请遵循以下步骤：
+## 贡献指南
+欢迎任何形式的贡献！如果你想为这个项目做出贡献，请遵循以下步骤：
 
 1. Fork 本仓库。
 2. 创建一个新的功能分支 `git checkout -b fix/an-issue`
@@ -84,7 +84,7 @@ src-tauri/target/release/bundle/
 4. 将你的分支推送到你的 Fork `git push origin fix/an-issue`
 5. 提交一个 Pull Request 描述你的更改内容
 
-## 📄 许可证
+## 许可证
 本项目基于 GPL-3.0 许可证开源。
 
 Copyright ©️2025 Colzry
