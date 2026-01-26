@@ -5,30 +5,21 @@
 
 #![allow(deprecated)]
 use crate::download_monitor::{run_monitor_task, DownloadMetrics};
-use reqwest::StatusCode;
 use crate::merge::merge_files;
-use anyhow::{anyhow, Result};
 use aes::Aes128;
-use cipher::{
-    BlockDecryptMut, KeyIvInit, block_padding::Pkcs7
-};
-use cipher::generic_array::GenericArray;
+use anyhow::{anyhow, Result};
 use cbc::Decryptor;
-use reqwest::Client;
-use std::collections::HashSet;
-use std::time::Duration;
-use std::{
-    sync::{
-        atomic::Ordering,
-        Arc,
-    },
-};
+use cipher::generic_array::GenericArray;
+use cipher::{block_padding::Pkcs7, BlockDecryptMut, KeyIvInit};
+use rand::{rngs::SmallRng, Rng, SeedableRng};
+use reqwest::header::{HeaderName, HeaderValue};
+use reqwest::{Client, StatusCode};
+use serde::{Deserialize, Serialize};
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
-use serde::{Serialize, Deserialize};
-use rand::{Rng, SeedableRng};
-use rand::rngs::SmallRng;
+use std::sync::{atomic::AtomicBool, atomic::Ordering, Arc};
+use std::time::Duration;
 use tauri::AppHandle;
-use std::sync::atomic::AtomicBool;
 use tokio::{
     fs,
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
@@ -88,9 +79,6 @@ fn parse_ext_x_key(line: &str) -> Result<(String, String, Option<String>)> {
     Ok((method, uri, iv))
 }
 
-use std::collections::HashMap;
-use reqwest::header::{HeaderName, HeaderValue};
-
 /// 自定义下载请求头选项
 #[derive(Debug, Clone)]
 pub struct DownloadOptions {
@@ -116,7 +104,10 @@ fn preprocess_headers(headers: &HashMap<String, String>) -> reqwest::header::Hea
     let mut valid_headers = reqwest::header::HeaderMap::new();
     for (key, value) in headers {
         // 尝试添加自定义请求头，如果格式不正确则跳过
-        match (HeaderName::from_bytes(key.as_bytes()), HeaderValue::from_str(value)) {
+        match (
+            HeaderName::from_bytes(key.as_bytes()),
+            HeaderValue::from_str(value),
+        ) {
             (Ok(header_name), Ok(header_value)) => {
                 valid_headers.insert(header_name, header_value);
             }
@@ -133,17 +124,18 @@ fn preprocess_headers(headers: &HashMap<String, String>) -> reqwest::header::Hea
 
 /// 下载单个TS文件（支持加密内容解密）
 async fn download_file(
+    index: usize, // 传入当前分片的索引，用于计算 IV
     client: &Client,
     url: &str,
     output_path: &str,
     cancelled: &Arc<AtomicBool>,
     encryption: Option<EncryptionInfo>,
-    metrics: Arc<DownloadMetrics>, // metrics参数
+    metrics: Arc<DownloadMetrics>,        // metrics参数
     headers: &reqwest::header::HeaderMap, // 预处理后的有效请求头
 ) -> Result<DownloadResult> {
     // 构建带自定义请求头的请求
     let request = client.get(url).headers(headers.clone());
-    
+
     let mut response = request.send().await?;
     let mut buffer = Vec::new();
 
@@ -163,23 +155,32 @@ async fn download_file(
 
     // 判断是否为空
     if buffer.is_empty() {
-        log::warn!("⚠️ [{}] 返回空数据，标记为 Skipped", url);
+        log::warn!("[{}] 返回空数据，标记为 Skipped", url);
         return Ok(DownloadResult::Skipped(url.to_string()));
     }
     // 检查是否 HTML/XML 内容
-    let content_type = response.headers()
+    let content_type = response
+        .headers()
         .get("Content-Type")
         .and_then(|ct| ct.to_str().ok())
         .unwrap_or("");
 
     if content_type.starts_with("text/html") || content_type.contains("xml") {
-        log::warn!("⚠️ [{}] 是 HTML 内容，标记为 Skipped", url);
+        log::warn!("[{}] 是 HTML 内容，标记为 Skipped", url);
         return Ok(DownloadResult::Skipped(url.to_string()));
     }
 
     // AES-128解密处理
     let data: Vec<u8> = if let Some(enc) = encryption {
-        let iv_vec = enc.iv.unwrap_or_else(|| vec![0; 16]); // 默认IV处理
+        // HLS标准：如果IV为空，则使用分片的Media Sequence Number（索引）作为IV
+        let iv_vec = enc.iv.unwrap_or_else(|| {
+            let mut iv = vec![0u8; 16];
+            // 将 index (usize) 转为 u64，然后按大端字节序写入 IV 的后 8 个字节
+            let index_bytes = (index as u64).to_be_bytes();
+            iv[8..16].copy_from_slice(&index_bytes);
+            iv
+        });
+
         let key = GenericArray::from_slice(&enc.key);
         let iv = GenericArray::from_slice(&iv_vec);
 
@@ -210,7 +211,11 @@ struct SegmentMetadata {
     encryption: Option<EncryptionInfo>,
 }
 
-async fn validate_m3u8_response(status: StatusCode, text: &str, content_type: Option<&str>) -> Result<()> {
+async fn validate_m3u8_response(
+    status: StatusCode,
+    text: &str,
+    content_type: Option<&str>,
+) -> Result<()> {
     // 状态码验证
     if !status.is_success() {
         return Err(match status.as_u16() {
@@ -219,7 +224,7 @@ async fn validate_m3u8_response(status: StatusCode, text: &str, content_type: Op
             code => anyhow::anyhow!("请求失败，状态码：{}", code),
         });
     }
-    
+
     // Content-Type 验证
     if let Some(ct) = content_type {
         let ct_lower = ct.to_lowercase();
@@ -235,9 +240,7 @@ async fn validate_m3u8_response(status: StatusCode, text: &str, content_type: Op
 
     // 内容验证
     if !text.trim_start().starts_with("#EXTM3U") {
-        return Err(anyhow::anyhow!(
-            "M3U8 内容无效：缺少 #EXTM3U 标识"
-        ));
+        return Err(anyhow::anyhow!("M3U8 内容无效：缺少 #EXTM3U 标识"));
     }
 
     Ok(())
@@ -245,38 +248,39 @@ async fn validate_m3u8_response(status: StatusCode, text: &str, content_type: Op
 
 /// M3U8下载主函数
 pub async fn download_m3u8(
-    id: String,                       // 下载任务唯一标识
-    url: &str,                        // M3U8文件URL
-    name: &str,                       // 输出文件名
-    temp_dir: &str,                   // ts文件下载目录
-    output_dir: &str,                 // MP4视频输出目录
-    concurrency: usize,               // 并发线程数
-    cancelled: Arc<AtomicBool>,       // 取消标志
-    app_handle: AppHandle,            // Tauri应用句柄
-    options: DownloadOptions,         // 下载选项（包含自定义headers等）
+    id: String,                 // 下载任务唯一标识
+    url: &str,                  // M3U8文件URL
+    name: &str,                 // 输出文件名
+    temp_dir: &str,             // ts文件下载目录
+    output_dir: &str,           // MP4视频输出目录
+    concurrency: usize,         // 并发线程数
+    cancelled: Arc<AtomicBool>, // 取消标志
+    app_handle: AppHandle,      // Tauri应用句柄
+    options: DownloadOptions,   // 下载选项（包含自定义headers等）
 ) -> Result<()> {
     // 创建输出目录
     fs::create_dir_all(temp_dir).await?;
-    
+
     let client = Client::new();
     // 预处理headers，只验证一次
     let headers = preprocess_headers(&options.headers);
     log::info!("headers: {:#?}", headers);
-    
+
     // --- 步骤 1: 解析M3U8，收集所有分片信息 ---
     // 分片元数据文件路径
     let segments_metadata_path = format!("{}/segments.json", temp_dir);
-    let mut all_ts_segments = Vec::new();
-    
+    // 添加了 usize，用于存储 index
+    let mut all_ts_segments: Vec<(usize, String, String, Option<EncryptionInfo>)> = Vec::new();
+
     // 尝试从保存的元数据文件中加载分片信息
     if tokio::fs::metadata(&segments_metadata_path).await.is_ok() {
-        log::info!("📥 从本地加载分片元数据: {}", segments_metadata_path);
+        log::info!("从本地加载分片元数据: {}", segments_metadata_path);
         let metadata_content = tokio::fs::read_to_string(&segments_metadata_path).await?;
         let segments_metadata: Vec<SegmentMetadata> = serde_json::from_str(&metadata_content)?;
-        
-        // 转换为原始格式
-        for segment in segments_metadata {
-            all_ts_segments.push((segment.url, segment.local_path, segment.encryption));
+
+        // 转换为原始格式，利用 enumerate 恢复 index
+        for (index, segment) in segments_metadata.into_iter().enumerate() {
+            all_ts_segments.push((index, segment.url, segment.local_path, segment.encryption));
         }
     } else {
         // 第一次下载，需要解析M3U8文件
@@ -290,13 +294,14 @@ pub async fn download_m3u8(
             .and_then(|v| v.to_str().ok())
             .map(|s| s.to_string());
         let response_text = raw_response.text().await?;
-        
+
         // 验证 M3U8
         validate_m3u8_response(status, &response_text, content_type.as_deref()).await?;
-     
-        let mut current_encryption = None;
 
-        for (index, line) in response_text.lines().enumerate() {
+        let mut current_encryption = None;
+        let mut ts_index = 0; // 单独维护 TS 文件的索引
+
+        for line in response_text.lines() {
             let line = line.trim();
             if line.starts_with("#EXT-X-KEY:") {
                 // 处理加密信息
@@ -315,7 +320,13 @@ pub async fn download_m3u8(
                     };
 
                     // 下载密钥文件
-                    let key_response = client.get(&key_url).headers(headers.clone()).send().await?.bytes().await?;
+                    let key_response = client
+                        .get(&key_url)
+                        .headers(headers.clone())
+                        .send()
+                        .await?
+                        .bytes()
+                        .await?;
                     let key = key_response.to_vec();
 
                     // 解析IV值
@@ -333,7 +344,7 @@ pub async fn download_m3u8(
 
             // 收集TS分片任务
             if line.ends_with(".ts") {
-                 // TS 分片如果是完整 URL，直接使用
+                // TS 分片如果是完整 URL，直接使用
                 let ts_url = if line.starts_with("http") {
                     line.to_string()
                 } else if line.starts_with('/') {
@@ -344,24 +355,25 @@ pub async fn download_m3u8(
                     // 处理相对路径 - 相对于M3U8文件所在目录解析
                     format!("{}/{}", url.rsplit_once('/').unwrap().0, line)
                 };
-                let filename = format!("{}/part_{}.ts", temp_dir, index);
-                all_ts_segments.push((ts_url, filename, current_encryption.clone()));
+                let filename = format!("{}/part_{}.ts", temp_dir, ts_index);
+                all_ts_segments.push((ts_index, ts_url, filename, current_encryption.clone()));
+                ts_index += 1;
             }
         }
-        
+
         // 保存分片元数据到文件，供后续断点续传使用
         let segments_metadata: Vec<SegmentMetadata> = all_ts_segments
             .iter()
-            .map(|(url, local_path, encryption)| SegmentMetadata {
+            .map(|(_, url, local_path, encryption)| SegmentMetadata {
                 url: url.clone(),
                 local_path: local_path.clone(),
                 encryption: encryption.clone(),
             })
             .collect();
-        
+
         let metadata_json = serde_json::to_string(&segments_metadata)?;
         tokio::fs::write(&segments_metadata_path, metadata_json).await?;
-        log::info!("💾 已保存分片元数据到: {}", segments_metadata_path);
+        log::info!("已保存分片元数据到: {}", segments_metadata_path);
     }
 
     if all_ts_segments.is_empty() {
@@ -371,9 +383,16 @@ pub async fn download_m3u8(
 
     // --- 步骤 2: 断点续传检查 (基于 Manifest 文件) ---
     let total_chunks = all_ts_segments.len();
-    let ts_files = Arc::new(Mutex::new(Vec::with_capacity(total_chunks))); // 存储 *所有* 最终用于合并的ts文件路径
     let metrics = Arc::new(DownloadMetrics::new(total_chunks));
-    let mut pending_downloads = Vec::new(); // 存储 *真正需要下载* 的任务
+
+    // 不再使用 Mutex 争抢收集文件名，直接从 M3U8 解析列表构建出最终顺序
+    let final_ts_files: Vec<String> = all_ts_segments
+        .iter()
+        .map(|(_, _, path, _)| path.clone())
+        .collect();
+
+    // 存储 真正需要下载 的任务
+    let mut pending_downloads = Vec::new();
 
     // 加载清单文件
     let manifest_path = format!("{}/progress.dat", temp_dir);
@@ -388,42 +407,42 @@ pub async fn download_m3u8(
             }
         }
     }
-    log::info!("任务 [{}]: 从清单文件中加载了 {} 条已完成记录", id, completed_segment_names.len());
+    log::info!(
+        "任务 [{}]: 从清单文件中加载了 {} 条已完成记录",
+        id,
+        completed_segment_names.len()
+    );
 
-    {
-        let mut ts_files_lock = ts_files.lock().await;
-        for (ts_url, filename, encryption) in all_ts_segments {
-            // 获取相对文件名，例如 "part_123.ts"
-            let relative_name = match Path::new(&filename).file_name().and_then(|s| s.to_str()) {
-                Some(name) => { name.to_string() }
-                None => { continue; } // 路径无效，跳过
-            };
+    for (index, ts_url, filename, encryption) in all_ts_segments {
+        // 获取相对文件名，例如 "part_123.ts"
+        let relative_name = match Path::new(&filename).file_name().and_then(|s| s.to_str()) {
+            Some(name) => name.to_string(),
+            None => continue, // 路径无效，跳过
+        };
 
-            // 检查清单中是否存在
-            if completed_segment_names.contains(&relative_name) {
-                // 存在，则检查本地文件并更新进度
-                match tokio::fs::metadata(&filename).await {
-                    Ok(metadata) if metadata.len() > 0 => {
-                        // 文件有效，视为已下载
-                        ts_files_lock.push(filename); // 直接加入待合并列表
-
-                        // 更新进度
-                        let file_size = metadata.len() as usize;
-                        metrics.completed_chunks.fetch_add(1, Ordering::Relaxed);
-                        metrics.downloaded_bytes.fetch_add(file_size, Ordering::Relaxed);
-                        metrics.update_total_bytes(file_size); // 更新总字节数
-                    }
-                    _ => {
-                        // 清单存在，但文件丢失/为空，重新下载
-                        pending_downloads.push((ts_url, filename, encryption));
-                    }
+        // 检查清单中是否存在
+        if completed_segment_names.contains(&relative_name) {
+            // 存在，则检查本地文件并更新进度
+            match tokio::fs::metadata(&filename).await {
+                Ok(metadata) if metadata.len() > 0 => {
+                    // 文件有效，视为已下载，仅更新计数器，不需要 push 到数组
+                    let file_size = metadata.len() as usize;
+                    metrics.completed_chunks.fetch_add(1, Ordering::Relaxed);
+                    metrics
+                        .downloaded_bytes
+                        .fetch_add(file_size, Ordering::Relaxed);
+                    metrics.update_total_bytes(file_size); // 更新总字节数
                 }
-            } else {
-                // 清单不存在，加入下载队列
-                pending_downloads.push((ts_url, filename, encryption));
+                _ => {
+                    // 清单存在，但文件丢失/为空，重新下载
+                    pending_downloads.push((index, ts_url, filename, encryption));
+                }
             }
+        } else {
+            // 清单不存在，加入下载队列
+            pending_downloads.push((index, ts_url, filename, encryption));
         }
-    } // 释放 ts_files_lock
+    }
 
     log::info!(
         "任务 [{}]: 总分片 {}, 已完成 {}, 待下载 {}",
@@ -439,7 +458,8 @@ pub async fn download_m3u8(
         Arc::clone(&cancelled),
         Arc::clone(&metrics),
         app_handle.clone(),
-    ).await;
+    )
+    .await;
 
     // --- 步骤 4: 启动下载任务 (只下载 pending_downloads) ---
     // 创建一个线程安全的清单文件写入器
@@ -453,9 +473,9 @@ pub async fn download_m3u8(
 
     let semaphore = Arc::new(Semaphore::new(concurrency));
     let mut handles = Vec::new();
-    for (ts_url, filename, encryption) in pending_downloads {
+
+    for (index, ts_url, filename, encryption) in pending_downloads {
         let client = client.clone();
-        let ts_files = Arc::clone(&ts_files);
         let semaphore = Arc::clone(&semaphore);
         let cancelled = Arc::clone(&cancelled);
         let metrics = Arc::clone(&metrics);
@@ -471,6 +491,7 @@ pub async fn download_m3u8(
                     return Ok::<(), anyhow::Error>(());
                 }
                 let result = download_file(
+                    index, // 传入索引，用于 IV 降级处理
                     &client,
                     &ts_url,
                     &filename,
@@ -479,55 +500,58 @@ pub async fn download_m3u8(
                     metrics.clone(),
                     &headers,
                 )
-                    .await;
+                .await;
 
                 match result {
                     Ok(DownloadResult::Success(f)) => {
-                        log::debug!("✅ 分片 [{}] 下载成功（尝试次数 {}）", f, attempt);
+                        log::debug!("分片 [{}] 下载成功（尝试次数 {}）", f, attempt);
 
-                        if let Some(relative_name) = Path::new(&f).file_name().and_then(|s| s.to_str()) {
+                        if let Some(relative_name) =
+                            Path::new(&f).file_name().and_then(|s| s.to_str())
+                        {
                             let mut writer = manifest_writer.lock().await;
-                            writer.write_all(format!("{}\n", relative_name).as_bytes()).await?;
-                            writer.flush().await?; // 立即刷新缓冲区，确保数据持久化
+                            writer
+                                .write_all(format!("{}\n", relative_name).as_bytes())
+                                .await?;
                         }
 
+                        // 将已完成计数器 +1
                         metrics.completed_chunks.fetch_add(1, Ordering::Relaxed);
-                        ts_files.lock().await.push(f);
                         return Ok(());
                     }
                     Ok(DownloadResult::Skipped(f)) => {
-                        log::warn!("🗑️ 分片 [{}] 内容无效，已跳过", f);
+                        log::warn!("分片 [{}] 内容无效，已跳过", f);
                         return Ok(());
                     }
                     Ok(DownloadResult::Cancelled(f)) => {
-                        log::debug!("⏹️ 分片 [{}] 因取消而中断", f);
+                        log::debug!("分片 [{}] 因取消而中断", f);
                         return Ok(());
                     }
                     Err(e) => {
-                        log::warn!("⚠️ 分片 [{}] 第 {} 次下载失败，原因：{}", filename, attempt, e);
+                        log::warn!("分片 [{}] 第 {} 次下载失败，原因：{}", filename, attempt, e);
                         if attempt < MAX_RETRIES {
-                            // 优化点 1: 实现指数退避和随机抖动
-                            // 计算基础延迟: 2^attempt 秒，最大不超过 10 秒
+                            // 指数退避和随机抖动
                             let base_delay_secs = (1 << (attempt - 1)).min(10);
 
-                            // 引入随机抖动: 延迟在 [base_delay_secs, base_delay_secs + 1] 之间
                             let mut rng = SmallRng::from_entropy();
                             let random_millis = rng.gen_range(0..1000);
 
                             let total_delay = Duration::from_secs(base_delay_secs as u64)
                                 + Duration::from_millis(random_millis);
 
-                            log::info!("➡️ 分片 [{}] 正在退避，等待 {:?}", filename, total_delay);
+                            log::info!("分片 [{}] 正在退避，等待 {:?}", filename, total_delay);
                             tokio::time::sleep(total_delay).await;
                         } else {
-                            log::error!("❌ 分片 [{}] 所有重试失败: {:?}, 尝试取消任务", filename, e);
+                            log::error!("分片 [{}] 所有重试失败: {:?}, 尝试取消任务", filename, e);
                             cancelled.store(true, Ordering::SeqCst); // 触发取消
                         }
                     }
                 }
             }
             // 返回 Err 表示该 task 最终失败
-            Err(anyhow::anyhow!("网络出现问题，某分片所有下载尝试均失败，下载已被取消，可尝试重新下载或者更换网络"))
+            Err(anyhow::anyhow!(
+                "网络出现问题，所有下载尝试均失败，下载已被取消"
+            ))
         }));
     }
 
@@ -536,16 +560,17 @@ pub async fn download_m3u8(
         handle.await??;
     }
 
-    // 检查是否所有分片都已就绪（包括已存在和刚下载的）
-    let final_ts_files = Arc::try_unwrap(ts_files).unwrap().into_inner();
-    if final_ts_files.len() != total_chunks {
+    // 直接通过计数器检查完成度
+    let completed_count = metrics.completed_chunks.load(Ordering::Relaxed);
+
+    if completed_count != total_chunks {
         if cancelled.load(Ordering::Relaxed) {
             // 用户主动取消
             log::info!(
                 "任务 [{}] 未完成下载。预期: {}, 已完成: {}. 任务已被取消",
                 id,
                 total_chunks,
-                final_ts_files.len()
+                completed_count
             );
         } else {
             // 下载失败
@@ -553,7 +578,7 @@ pub async fn download_m3u8(
                 "任务 [{}] 未能集齐所有分片。预期: {}, 实际: {}. 下载失败",
                 id,
                 total_chunks,
-                final_ts_files.len()
+                completed_count
             );
             // 强制取消
             cancelled.store(true, Ordering::SeqCst);
@@ -583,7 +608,7 @@ pub async fn download_m3u8(
         &output_dir,
         app_handle.clone(),
     )
-        .await?;
+    .await?;
 
     Ok(())
 }

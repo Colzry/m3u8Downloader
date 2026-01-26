@@ -72,20 +72,6 @@ pub async fn resolve_ffmpeg_path_and_prepare(handle: &AppHandle) -> Result<PathB
     }
 }
 
-/// 下载的ts文件排序
-fn sort_ts_files(ts_files: &mut Vec<String>) {
-    ts_files.sort_by(|a, b| {
-        let extract_index = |s: &str| {
-            s.rsplit('_')
-                .next()
-                .and_then(|part| part.strip_suffix(".ts"))
-                .and_then(|num| num.parse::<usize>().ok())
-                .unwrap_or(0)
-        };
-        extract_index(a).cmp(&extract_index(b))
-    });
-}
-
 /// 创建带平台特性的 Command
 #[cfg(target_os = "windows")]
 fn create_ffmpeg_command(ffmpeg: &str) -> process::Command {
@@ -174,7 +160,7 @@ fn sanitize_filename(name: &str) -> String {
 pub async fn merge_files(
     id: String,
     name: &str,
-    mut ts_files: Vec<String>,
+    ts_files: Vec<String>,
     temp_dir: &str,
     output_dir: &str,
     app_handle: AppHandle,
@@ -182,7 +168,7 @@ pub async fn merge_files(
     // 1. 创建 concat.txt
     let concat_file_path = format!("{}/concat.txt", temp_dir);
     let mut concat_file = File::create(&concat_file_path).await?;
-    sort_ts_files(&mut ts_files);
+    
     for ts_file in &ts_files {
         // 正确转义单引号
         let escaped = ts_file.replace('\\', r"\\").replace('\'', r"\'");
