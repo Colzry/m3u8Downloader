@@ -20,6 +20,12 @@ pub async fn start_download(
     manager: tauri::State<'_, DownloadManager>, // 注入全局管理器
     headers: Option<std::collections::HashMap<String, String>>, // 自定义请求头
 ) -> Result<(), String> {
+    
+    if manager.task_exists(&id).await {
+            log::warn!("任务 [{}] 已在运行中，忽略本次请求", id);
+            return Ok(());
+    }
+    
     let temp_dir = format!("{}/temp_{}", output_dir, id);
 
     log::info!("Name: [{}], URL: [{}], ID: [{}] - 开始下载", name, url, id);
