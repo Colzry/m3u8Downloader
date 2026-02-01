@@ -224,14 +224,14 @@ export const useDownloadingStore = defineStore("Downloading", {
                 return; 
             }
           
-            this.updateItem(taskId, { status: 2 });
-          
             // 如果达到最大并发数，设置为等待状态
             if (this.checkMaxDownloads(taskId)) return;
 
             // 清理已有监听器
             this.cleanupTaskListeners(taskId);
-
+          
+            this.updateItem(taskId, { status: 2 });
+          
             // 创建事件监听器
             const [
                 listenCreateDir,
