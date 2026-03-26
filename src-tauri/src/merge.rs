@@ -114,6 +114,7 @@ fn sanitize_filename(name: &str) -> String {
         .collect();
 
     // 移除开头/结尾的空格或点
+    #[allow(unused_mut)]
     let mut sanitized = sanitized.trim_matches(|c| c == ' ' || c == '.').to_string();
 
     // 检查 Windows 保留名（虽然大部分都会被前面的非法字符和 trim 处理，但为了健壮性保留）
