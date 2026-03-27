@@ -43,7 +43,7 @@
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDZFODNBRDdBRDA0OThCNjkKUldScGkwblFlcTJEYnVCUXhSMDFwMFJvRUhqaGl2eDRYYTlqby9kanMycWt5dURoMWFHVHI2b24K",
       "endpoints": [
-        "https://github.com/Colzry/m3u8Downloader/releases/latest/download/latest.json"
+        "https://github.com/Colzry/m3u8-downloader/releases/latest/download/latest.json"
       ]
     }
   }

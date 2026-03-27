@@ -258,11 +258,11 @@ const confirmUpdate = async () => {
                         class="set-value url"
                         @click="
                             openUrl(
-                                'https://github.com/Colzry/m3u8Downloader/releases',
+                                'https://github.com/Colzry/m3u8-downloader/releases',
                             )
                         "
                     >
-                        https://github.com/Colzry/m3u8Downloader/releases
+                        https://github.com/Colzry/m3u8-downloader/releases
                     </div>
                 </div>
             </div>
