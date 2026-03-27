@@ -1,4 +1,4 @@
-<script async setup>
+<script setup>
 import PageHeader from "@/views/Home/components/PageHeader.vue";
 import MainWrapper from "@/views/Home/components/MainWrapper.vue";
 import { useSettingStore } from "@/store/SettingStore.js";
@@ -6,9 +6,11 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { openPath, openUrl } from "@tauri-apps/plugin-opener";
 import { appLogDir } from "@tauri-apps/api/path";
 import { HelpCircleOutline } from "@vicons/ionicons5";
-import { ref, onMounted } from "vue";
-import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
+import { ref } from "vue";
+
+// 引入官方的 updater 和 process 插件 API
+import { check } from "@tauri-apps/plugin-updater";
+import { relaunch } from "@tauri-apps/plugin-process";
 
 const version = import.meta.env.VITE_APP_VERSION;
 const settingStore = useSettingStore();
@@ -24,7 +26,6 @@ const selectFolder = async () => {
     }
 };
 
-// 日志级别选项（与 Rust 的 LevelFilter 对应）
 const LOG_LEVEL_OPTIONS = [
     { label: "Trace", value: "Trace" },
     { label: "Debug", value: "Debug" },
@@ -43,51 +44,90 @@ const openAppLogDirectory = async () => {
     }
 };
 
-const updateModalVisible = ref(false); // 控制模态框显示
-const updateProgress = ref(0); // 下载进度百分比
-const updateMessage = ref(""); // 下载状态文字
-const updateModalStatus = ref("checking"); // "checking" | "downloading" | "success" | "failed" | "latest"
+const updateModalVisible = ref(false);
+const updateProgress = ref(0);
+const updateMessage = ref("");
+// 增加 "confirm" 状态
+const updateModalStatus = ref("checking"); // "checking" | "confirm" | "downloading" | "success" | "failed" | "latest"
 
-onMounted(() => {
-    // 监听 Rust 后端发过来的更新状态
-    listen("update_status", (event) => {
-        const { status, progress, message } = event.payload;
+// 用于保存检查到的更新对象
+const currentUpdate = ref(null);
 
-        updateProgress.value = progress;
-        updateMessage.value = message;
-        
-        if (status === "downloading") {
-            updateModalStatus.value = "downloading";
-        } else if (status === "latest") {
-            updateModalStatus.value = "latest";
-            setTimeout(() => {
-                updateModalVisible.value = false;
-            }, 3000);
-        } else if (status === "installed") {
-            updateModalStatus.value = "success";
-            setTimeout(() => {
-                updateModalVisible.value = false;
-            }, 3000);
-        } else if (status === "failed") {
-            updateModalStatus.value = "failed";
-            setTimeout(() => {
-                updateModalVisible.value = false;
-            }, 3000);
-        }
-    });
-});
-
-// 点击按钮触发更新
+// 点击按钮触发检查更新
 const onCheckUpdateClick = async () => {
     updateModalVisible.value = true;
     updateProgress.value = 0;
     updateMessage.value = "正在检查更新...";
     updateModalStatus.value = "checking";
+    currentUpdate.value = null;
+
     try {
-        await invoke("check_update");
+        // 使用 Tauri 官方前端 API 检查更新
+        const update = await check();
+
+        if (update) {
+            // 发现更新，进入等待用户确认状态
+            currentUpdate.value = update;
+            updateMessage.value = `发现新版本 v${update.version}，是否立即更新？`;
+            updateModalStatus.value = "confirm";
+        } else {
+            // 没有更新
+            updateMessage.value = "当前已是最新版本";
+            updateModalStatus.value = "latest";
+            setTimeout(() => {
+                updateModalVisible.value = false;
+            }, 3000);
+        }
     } catch (e) {
         updateMessage.value = "检查更新失败：" + e;
-        updateProgress.value = 0;
+        updateModalStatus.value = "failed";
+        setTimeout(() => {
+            updateModalVisible.value = false;
+        }, 3000);
+    }
+};
+
+// 用户点击确认更新，开始下载
+const confirmUpdate = async () => {
+    if (!currentUpdate.value) return;
+
+    updateModalStatus.value = "downloading";
+    updateMessage.value = "正在下载更新...";
+    updateProgress.value = 0;
+
+    let downloaded = 0;
+    let contentLength = 0;
+
+    try {
+        // 执行下载并安装，监听进度
+        await currentUpdate.value.downloadAndInstall((event) => {
+            switch (event.event) {
+                case "Started":
+                    contentLength = event.data.contentLength;
+                    break;
+                case "Progress":
+                    downloaded += event.data.chunkLength;
+                    if (contentLength > 0) {
+                        updateProgress.value = Math.round(
+                            (downloaded / contentLength) * 100,
+                        );
+                    }
+                    break;
+                case "Finished":
+                    updateProgress.value = 100;
+                    break;
+            }
+        });
+
+        // 安装完成
+        updateMessage.value = "更新已准备就绪，正在重启...";
+        updateModalStatus.value = "success";
+
+        setTimeout(async () => {
+            await relaunch(); // 重启应用
+        }, 1500);
+    } catch (e) {
+        updateMessage.value = "更新下载失败：" + e;
         updateModalStatus.value = "failed";
         setTimeout(() => {
             updateModalVisible.value = false;
@@ -217,7 +257,9 @@ const onCheckUpdateClick = async () => {
                     <div
                         class="set-value url"
                         @click="
-                            openUrl('https://github.com/Colzry/m3u8Downloader/releases')
+                            openUrl(
+                                'https://github.com/Colzry/m3u8Downloader/releases',
+                            )
                         "
                     >
                         https://github.com/Colzry/m3u8Downloader/releases
@@ -304,10 +346,18 @@ const onCheckUpdateClick = async () => {
                 {{ updateMessage }}
             </p>
 
+            <div
+                v-if="updateModalStatus === 'confirm'"
+                style="margin-top: 20px; display: flex; gap: 15px"
+            >
+                <n-button @click="updateModalVisible = false">取消</n-button>
+                <n-button type="primary" @click="confirmUpdate"
+                    >立即更新</n-button
+                >
+            </div>
+
             <n-progress
-                v-if="
-                    updateModalStatus === 'downloading'
-                "
+                v-if="updateModalStatus === 'downloading'"
                 :percentage="updateProgress"
                 :show-indicator="false"
                 type="line"
@@ -325,6 +375,7 @@ const onCheckUpdateClick = async () => {
 </template>
 
 <style scoped lang="less">
+/* 原有样式保持不变 */
 .set-wrap {
     width: 100%;
     padding: 10px;
@@ -335,17 +386,17 @@ const onCheckUpdateClick = async () => {
         margin-bottom: 1rem;
     }
     .title {
-        position: relative; /* 使伪元素的定位相对于父元素 */
-        padding-left: 10px; /* 为标题内容增加左边距，避免和长方形重叠 */
-        line-height: 1.1rem; /* 确保垂直居中 */
+        position: relative;
+        padding-left: 10px;
+        line-height: 1.1rem;
         &::before {
-            content: ""; /* 创建一个空内容伪元素 */
-            position: absolute; /* 绝对定位 */
-            left: 0; /* 靠左对齐 */
-            top: 0; /* 从顶部开始 */
-            width: 3px; /* 宽度为 2px */
-            height: 100%; /* 高度为父元素的 100% */
-            background-color: #1ba059; /* 背景颜色 */
+            content: "";
+            position: absolute;
+            left: 0;
+            top: 0;
+            width: 3px;
+            height: 100%;
+            background-color: #1ba059;
         }
     }
 
@@ -356,7 +407,7 @@ const onCheckUpdateClick = async () => {
             align-items: center;
             .set-label {
                 margin-left: 10px;
-                flex: 3 1 0; /* 比例3，允许收缩，基准宽度0% */
+                flex: 3 1 0;
                 color: #1f1f1f;
                 .select-dir {
                     display: inline-block;
@@ -374,7 +425,7 @@ const onCheckUpdateClick = async () => {
             .set-value {
                 display: flex;
                 align-items: center;
-                flex: 7 1 0; /* 比例7，允许收缩，基准宽度0% */
+                flex: 7 1 0;
             }
             .url {
                 cursor: pointer;
