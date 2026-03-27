@@ -59,14 +59,14 @@ fn detect_log_level_from_settings(app_handle: &AppHandle) -> Option<LevelFilter>
     let store = match store_result {
         Ok(s) => s,
         Err(e) => {
-            eprintln!("⚠️ 无法加载 settings.dat: {}", e);
+            eprintln!("无法加载 settings.dat: {}", e);
             return None;
         }
     };
 
     // 确保数据已从磁盘加载
     if let Err(e) = store.reload() {
-        eprintln!("⚠️ 无法从磁盘加载 settings.dat: {}", e);
+        eprintln!("无法从磁盘加载 settings.dat: {}", e);
         return None;
     }
 
@@ -128,8 +128,8 @@ pub fn setup_logging(app_handle: &AppHandle) -> Result<(), String> {
         .apply()
         .map_err(|e| e.to_string())?;
 
-    log::info!("✅ 日志模块加载成功");
-    log::info!("ℹ️ 当前日志级别为: {:?}", level);
+    log::info!("日志模块加载成功");
+    log::info!("当前日志级别为: {:?}", level);
 
     Ok(())
 }

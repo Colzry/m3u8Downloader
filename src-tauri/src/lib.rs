@@ -3,9 +3,13 @@ use crate::commands::{
     save_store_file, start_download,
 };
 use crate::download_manager::DownloadManager;
-use tauri::tray::{MouseButton, TrayIconEvent};
-use tauri::{async_runtime, Emitter, Manager, WindowEvent};
+use tauri::{
+    async_runtime,
+    tray::{MouseButton, TrayIconEvent},
+    AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder,
+};
 use tauri_plugin_store::StoreExt;
+
 pub mod commands;
 mod download;
 mod download_manager;
@@ -15,7 +19,7 @@ mod merge;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    // 创建 Tokio 运行时
+    // 1. 创建 Tokio 运行时
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
@@ -24,29 +28,19 @@ pub fn run() {
     // 设置 Tauri 的异步运行时
     async_runtime::set(runtime.handle().clone());
 
-    // 启动 Tauri 应用程序
+    // 2. 启动 Tauri 应用程序
     tauri::Builder::default()
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
             // 多次启动聚焦主窗口
-            if let Some(window) = app.get_webview_window("main") {
-                // 1. 检查是否最小化，如果是则恢复
+            if let Some(window) = get_or_create_main_window(app) {
                 if let Ok(true) = window.is_minimized() {
-                    if let Err(e) = window.unminimize() {
-                        eprintln!("无法恢复窗口: {}", e);
-                    }
+                    let _ = window.unminimize();
                 }
-                // 2. 检查是否隐藏，如果是则显示
                 if let Ok(false) = window.is_visible() {
-                    if let Err(e) = window.show() {
-                        eprintln!("无法显示窗口: {}", e);
-                    }
+                    let _ = window.show();
                 }
-
-                // 3. 最后，将窗口带到前台并聚焦
-                if let Err(e) = window.set_focus() {
-                    eprintln!("无法聚焦窗口: {}", e);
-                }
+                let _ = window.set_focus();
             }
         }))
         .plugin(tauri_plugin_http::init())
@@ -57,38 +51,43 @@ pub fn run() {
         .plugin(tauri_plugin_store::Builder::new().build())
         .setup(|app| {
             if let Err(e) = logger::setup_logging(&app.handle()) {
-                eprintln!("⚠️ 初始化Tauri日志失败：{}", e);
+                eprintln!("初始化Tauri日志失败：{}", e);
             }
 
+            // 初始化托盘
             enable_tray(app)?;
-            // 初始化 store 并读取配置
-            let store = app.store("settings.dat")?;
-            // 监听窗口关闭事件
-            let main_window = app.get_webview_window("main").unwrap();
 
-            main_window.clone().on_window_event(move |event| {
-                if let WindowEvent::CloseRequested { api, .. } = event {
-                    if store
-                        .get("minimize_on_close")
-                        .and_then(|v| v.as_bool())
-                        .unwrap_or(true)
-                    {
-                        api.prevent_close(); // 阻止默认关闭行为
+            // ==========================================
+            // 为初始主窗口绑定关闭拦截逻辑
+            // ==========================================
+            if let Some(main_window) = app.get_webview_window("main") {
+                let w = main_window.clone();
+                main_window.on_window_event(move |event| {
+                    if let tauri::WindowEvent::CloseRequested { api: _api, .. } = event {
+                        let app_handle = w.app_handle();
+                        let should_minimize = app_handle
+                            .store("settings.dat")
+                            .ok()
+                            .and_then(|s| s.get("minimize_on_close"))
+                            .and_then(|v| v.as_bool())
+                            .unwrap_or(true);
 
-                        // 在 Linux 上，只最小化，不隐藏，避免窗口控件失效
-                        #[cfg(target_os = "linux")]
-                        {
-                            let _ = main_window.minimize(); // 最小化即可
-                        }
-
-                        // 在 Windows/macOS 上，可以 hide（或 minimize + hide）
-                        #[cfg(not(target_os = "linux"))]
-                        {
-                            let _ = main_window.hide();
+                        if should_minimize {
+                            #[cfg(not(target_os = "linux"))]
+                            {
+                                // Windows / macOS: 阻止销毁，隐藏窗口
+                                _api.prevent_close();
+                                let _ = w.hide();
+                            }
+                            #[cfg(target_os = "linux")]
+                            {
+                                // Linux: 不阻止，让窗口彻底物理销毁以避免 GTK 控件失效 Bug
+                                println!("Linux: 初始窗口已彻底销毁，准备后台运行");
+                            }
                         }
                     }
-                }
-            });
+                });
+            }
 
             Ok(())
         })
@@ -102,66 +101,171 @@ pub fn run() {
             check_update,
             save_store_file,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while running tauri application")
+        .run(|app_handle, event| match event {
+            // ==========================================
+            // 拦截应用级退出事件 (Wayland 强制关闭 / 窗口销毁后的兜底)
+            // ==========================================
+            tauri::RunEvent::ExitRequested { api, code, .. } => {
+                // code.is_none() 表示这是由于最后一个窗口被系统销毁触发的隐式退出
+                if code.is_none() {
+                    let should_minimize = app_handle
+                        .store("settings.dat")
+                        .ok()
+                        .and_then(|s| s.get("minimize_on_close"))
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or(true);
+
+                    if should_minimize {
+                        // 阻止进程死亡，托盘存活！
+                        api.prevent_exit();
+                        println!("Wayland/Linux 退出拦截：已阻止进程退出，保持托盘后台运行");
+                    }
+                }
+            }
+            _ => {}
+        });
 }
 
+/// 恢复窗口显示
 fn restore_window(window: &tauri::WebviewWindow) {
     let _ = window.unminimize();
     let _ = window.show();
     let _ = window.set_focus();
 }
 
+/// 获取现有主窗口，如果不存在（被 Linux 销毁了）则重新创建一个
+pub fn get_or_create_main_window(app: &AppHandle) -> Option<tauri::WebviewWindow> {
+    if let Some(window) = app.get_webview_window("main") {
+        return Some(window);
+    }
+
+    // 窗口已被销毁 — 重建窗口
+    log::warn!("tray: window-not-found label=main — recreating...");
+
+    let mut builder = WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
+        .title("m3u8下载器")
+        .inner_size(1200.0, 750.0)
+        .min_inner_size(1100.0, 740.0)
+        .center();
+
+    #[cfg(target_os = "macos")]
+    {
+        use tauri::TitleBarStyle;
+        builder = builder
+            .title_bar_style(TitleBarStyle::Overlay)
+            .decorations(true)
+            .shadow(true);
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        // 恢复原生边框和关闭按钮
+        builder = builder.decorations(true);
+    }
+
+    match builder.build() {
+        Ok(w) => {
+            log::info!("tray: window-recreated label=main");
+
+            // ==========================================
+            // 为新复活的窗口重新绑定关闭拦截逻辑
+            // ==========================================
+            let w_clone = w.clone();
+            w.on_window_event(move |event| {
+                if let tauri::WindowEvent::CloseRequested { api: _api, .. } = event {
+                    let app_handle = w_clone.app_handle();
+                    let should_minimize = app_handle
+                        .store("settings.dat")
+                        .ok()
+                        .and_then(|s| s.get("minimize_on_close"))
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or(true);
+
+                    if should_minimize {
+                        #[cfg(not(target_os = "linux"))]
+                        {
+                            _api.prevent_close();
+                            let _ = w_clone.hide();
+                        }
+                        #[cfg(target_os = "linux")]
+                        {
+                            // Linux 下直接让窗口销毁
+                            println!("Linux: 重新创建的窗口已销毁");
+                        }
+                    }
+                }
+            });
+
+            Some(w)
+        }
+        Err(e) => {
+            log::error!("tray: window-recreate-failed error={}", e);
+            None
+        }
+    }
+}
+
+/// 设置并启用系统托盘
 fn enable_tray(app: &mut tauri::App) -> tauri::Result<()> {
     use tauri::{
         menu::{MenuBuilder, MenuItem},
         tray::TrayIconBuilder,
     };
 
-    // 打开按钮
-    let open_i = MenuItem::with_id(app, "open", "打开", true, None::<&str>)?;
-    // 退出按钮
-    let quit_i = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
-    // 设置按钮
-    let settings_i = MenuItem::with_id(app, "settings", "设置", true, None::<&str>).unwrap();
+    // 菜单项
+    let show_item = MenuItem::with_id(app, "show", "显示", true, None::<&str>)?;
+    let settings_item = MenuItem::with_id(app, "settings", "设置", true, None::<&str>)?;
+    let quit_item = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
 
-    // 按照一定顺序 把按钮 放到 菜单里
+    // 组装菜单
     let menu = MenuBuilder::new(app)
-        .item(&open_i)
-        .separator() // 分割线
-        .item(&settings_i)
-        .separator() // 分割线
-        .item(&quit_i)
+        .item(&show_item)
+        .separator()
+        .item(&settings_item)
+        .separator()
+        .item(&quit_item)
         .build()?;
 
     let _tray = TrayIconBuilder::with_id("tray")
         .show_menu_on_left_click(false)
-        .icon(app.default_window_icon().unwrap().clone()) // 默认的图片
-        // .icon(Image::from_bytes(include_bytes!("../icons/light@2x.png")).expect("REASON")) // 自定义的图片
-        .tooltip("m3u8下载器")
+        .icon(app.default_window_icon().unwrap().clone())
+        .tooltip("m3u8视频下载器")
         .menu(&menu)
         .on_tray_icon_event(|tray, event| match event {
+            // 左键单击托盘图标
             TrayIconEvent::Click {
                 button: MouseButton::Left,
                 ..
             } => {
                 let app = tray.app_handle();
-                if let Some(window) = app.get_webview_window("main") {
+                // 使用重建逻辑
+                if let Some(window) = get_or_create_main_window(app) {
                     restore_window(&window);
                 }
             }
             _ => {}
         })
         .on_menu_event(|app, event| match event.id.as_ref() {
-            "open" => {
-                let window = app.get_webview_window("main").unwrap();
-                restore_window(&window);
+            "show" => {
+                #[cfg(target_os = "macos")]
+                {
+                    use tauri::ActivationPolicy;
+                    let _ = app.set_activation_policy(ActivationPolicy::Regular);
+                }
+                if let Some(window) = get_or_create_main_window(app) {
+                    restore_window(&window);
+                }
             }
             "settings" => {
-                // windows failed to open second window, issue: https://github.com/tauri-apps/tauri/issues/11144 https://github.com/tauri-apps/tauri/issues/8196
+                // 通知前端打开设置页面
                 let _ = app.emit("open_settings", "");
-                let window = app.get_webview_window("main").unwrap();
-                restore_window(&window);
+
+                // 同样使用安全重建逻辑
+                if let Some(window) = get_or_create_main_window(app) {
+                    restore_window(&window);
+                }
             }
             "quit" => {
                 app.exit(0);
@@ -170,6 +274,7 @@ fn enable_tray(app: &mut tauri::App) -> tauri::Result<()> {
                 println!("menu item {:?} not handled", event.id);
             }
         })
-        .build(app);
+        .build(app)?;
+
     Ok(())
 }

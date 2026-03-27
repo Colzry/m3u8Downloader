@@ -16,7 +16,10 @@
         "label": "main",
         "width": 1200,
         "height": 750,
-        "resizable": false
+        "minWidth": 1100,
+        "minHeight": 740,
+        "center": true,
+        "shadow": false
       }
     ],
     "security": {

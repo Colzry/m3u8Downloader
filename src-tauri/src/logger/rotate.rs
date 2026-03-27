@@ -26,7 +26,7 @@ pub fn get_log_dir_path(app_handle: &AppHandle) -> Result<PathBuf, String> {
 pub fn clean_old_logs(log_dir: &PathBuf) {
     // 判断目录是否存在
     if !log_dir.exists() {
-        eprintln!("📁 日志目录不存在，跳过清理");
+        eprintln!("日志目录不存在，跳过清理");
         return;
     }
 
@@ -34,7 +34,7 @@ pub fn clean_old_logs(log_dir: &PathBuf) {
     let entries = match fs::read_dir(&log_dir) {
         Ok(entries) => entries,
         Err(e) => {
-            eprintln!("⚠️ 无法读取日志目录 {}: {:?}", log_dir.display(), e);
+            eprintln!("无法读取日志目录 {}: {:?}", log_dir.display(), e);
             return;
         }
     };
@@ -45,7 +45,7 @@ pub fn clean_old_logs(log_dir: &PathBuf) {
         let path = match entry {
             Ok(e) => e.path(),
             Err(e) => {
-                println!("⚠️ 无法读取文件项: {}", e);
+                println!("无法读取文件项: {}", e);
                 continue;
             }
         };
@@ -53,7 +53,7 @@ pub fn clean_old_logs(log_dir: &PathBuf) {
         let meta = match fs::metadata(&path) {
             Ok(meta) => meta,
             Err(e) => {
-                println!("⚠️ 无法获取元数据 {}: {}", path.display(), e);
+                println!("无法获取元数据 {}: {}", path.display(), e);
                 continue;
             }
         };
@@ -61,16 +61,16 @@ pub fn clean_old_logs(log_dir: &PathBuf) {
         let modified_time = match meta.modified() {
             Ok(modified) => chrono::DateTime::<Local>::from(modified),
             Err(e) => {
-                println!("⚠️ 无法获取修改时间 {}: {}", path.display(), e);
+                println!("无法获取修改时间 {}: {}", path.display(), e);
                 continue;
             }
         };
 
         if now.signed_duration_since(modified_time).num_days() > MAX_LOG_KEEP_DAYS {
             if let Err(e) = fs::remove_file(&path) {
-                eprintln!("⚠️ 删除失败 {}: {}", path.display(), e);
+                eprintln!("删除失败 {}: {}", path.display(), e);
             } else {
-                println!("🗑️ 已删除旧日志: {}", path.display());
+                println!("已删除旧日志: {}", path.display());
             }
         }
     }
