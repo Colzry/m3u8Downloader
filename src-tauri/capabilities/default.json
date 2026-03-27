@@ -1,42 +1,50 @@
 {
-    "$schema": "../gen/schemas/desktop-schema.json",
-    "identifier": "default",
-    "description": "Capability for the main window",
-    "windows": ["main"],
-    "permissions": [
-        "core:default",
-        "core:event:allow-listen",
-        "core:event:allow-unlisten",
-        "core:path:default",
-        "core:path:allow-resolve-directory",
-        "fs:default",
-        "opener:default",
-        "dialog:default",
-        "store:allow-get",
-        "store:allow-set",
-        "store:allow-save",
-        "store:allow-load",
-        "updater:default",
-        {
-            "identifier": "fs:scope",
-            "allow": [
-                {
-                    "path": "**"
-                }
-            ]
-        },
-        {
-            "identifier": "opener:allow-open-path",
-            "allow": [
-                {
-                    "path": "**"
-                }
-            ]
-        },
-        {
-            "identifier": "http:default",
-            "allow": [{ "url": "https://*" }, { "url": "http://*" }],
-            "deny": []
-        }
-    ]
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Capability for the main window",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "core:event:allow-listen",
+    "core:event:allow-unlisten",
+    "core:path:default",
+    "core:path:allow-resolve-directory",
+    "fs:default",
+    "opener:default",
+    "dialog:default",
+    "store:allow-get",
+    "store:allow-set",
+    "store:allow-save",
+    "store:allow-load",
+    "updater:default",
+    {
+      "identifier": "fs:scope",
+      "allow": [
+        { "path": "$DESKTOP/**" },
+        { "path": "$DOCUMENT/**" },
+        { "path": "$DOWNLOAD/**" },
+        { "path": "$PICTURE/**" },
+        { "path": "$VIDEO/**" },
+        { "path": "$APPDATA/**" },
+        { "path": "$APPLOG/**" },
+        { "path": "$TEMP/**" },
+        { "path": "**" }
+      ]
+    },
+    {
+      "identifier": "opener:allow-open-path",
+      "allow": [
+        { "path": "$APPDATA/**" },
+        { "path": "$APPLOCALDATA/**" },
+        { "path": "$APPCONFIG/**" },
+        { "path": "$APPLOG/**" },
+        { "path": "**" }
+      ]
+    },
+    {
+      "identifier": "http:default",
+      "allow": [{ "url": "https://*" }, { "url": "http://*" }],
+      "deny": []
+    }
+  ]
 }
