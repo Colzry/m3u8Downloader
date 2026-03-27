@@ -51,6 +51,7 @@ pub fn run() {
         .plugin(tauri_plugin_store::Builder::new().build())
         .setup(|app| {
             if let Err(e) = logger::setup_logging(&app.handle()) {
+                log::error!("初始化Tauri日志失败：{}", e);
                 eprintln!("初始化Tauri日志失败：{}", e);
             }
 
@@ -65,11 +66,12 @@ pub fn run() {
                 main_window.on_window_event(move |event| {
                     if let tauri::WindowEvent::CloseRequested { api: _api, .. } = event {
                         let app_handle = w.app_handle();
+
                         let should_minimize = app_handle
                             .store("settings.dat")
                             .ok()
-                            .and_then(|s| s.get("minimize_on_close"))
-                            .and_then(|v| v.as_bool())
+                            .and_then(|s| s.get("minimizeOnClose"))
+                            .and_then(|v| v.as_bool().or_else(|| v.as_str().map(|s| s == "true")))
                             .unwrap_or(true);
 
                         if should_minimize {
@@ -84,6 +86,10 @@ pub fn run() {
                                 // Linux: 不阻止，让窗口彻底物理销毁以避免 GTK 控件失效 Bug
                                 println!("Linux: 初始窗口已彻底销毁，准备后台运行");
                             }
+                        } else {
+                            println!("用户请求退出，正在关闭程序...");
+                            log::info!("Exit the application...");
+                            app_handle.exit(0);
                         }
                     }
                 });
@@ -103,18 +109,18 @@ pub fn run() {
         ])
         .build(tauri::generate_context!())
         .expect("error while running tauri application")
-        .run(|app_handle, event| match event {
+        .run(|app_handle, event| {
             // ==========================================
             // 拦截应用级退出事件 (Wayland 强制关闭 / 窗口销毁后的兜底)
             // ==========================================
-            tauri::RunEvent::ExitRequested { api, code, .. } => {
+            if let tauri::RunEvent::ExitRequested { api, code, .. } = event {
                 // code.is_none() 表示这是由于最后一个窗口被系统销毁触发的隐式退出
                 if code.is_none() {
                     let should_minimize = app_handle
                         .store("settings.dat")
                         .ok()
-                        .and_then(|s| s.get("minimize_on_close"))
-                        .and_then(|v| v.as_bool())
+                        .and_then(|s| s.get("minimizeOnClose"))
+                        .and_then(|v| v.as_bool().or_else(|| v.as_str().map(|s| s == "true")))
                         .unwrap_or(true);
 
                     if should_minimize {
@@ -122,9 +128,9 @@ pub fn run() {
                         api.prevent_exit();
                         println!("Wayland/Linux 退出拦截：已阻止进程退出，保持托盘后台运行");
                     }
+                    // 如果 should_minimize 为 false，这里什么都不做，程序将顺理成章地真正退出。
                 }
             }
-            _ => {}
         });
 }
 
@@ -179,8 +185,8 @@ pub fn get_or_create_main_window(app: &AppHandle) -> Option<tauri::WebviewWindow
                     let should_minimize = app_handle
                         .store("settings.dat")
                         .ok()
-                        .and_then(|s| s.get("minimize_on_close"))
-                        .and_then(|v| v.as_bool())
+                        .and_then(|s| s.get("minimizeOnClose"))
+                        .and_then(|v| v.as_bool().or_else(|| v.as_str().map(|s| s == "true")))
                         .unwrap_or(true);
 
                     if should_minimize {
@@ -194,6 +200,10 @@ pub fn get_or_create_main_window(app: &AppHandle) -> Option<tauri::WebviewWindow
                             // Linux 下直接让窗口销毁
                             println!("Linux: 重新创建的窗口已销毁");
                         }
+                    } else {
+                        println!("用户请求退出，正在关闭程序...");
+                        log::info!("Exit the application...");
+                        app_handle.exit(0);
                     }
                 }
             });
@@ -268,6 +278,7 @@ fn enable_tray(app: &mut tauri::App) -> tauri::Result<()> {
                 }
             }
             "quit" => {
+                log::info!("Exit the application...");
                 app.exit(0);
             }
             _ => {
