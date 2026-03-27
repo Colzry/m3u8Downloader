@@ -27,6 +27,7 @@
     }
   },
   "bundle": {
+    "category": "Utility",
     "createUpdaterArtifacts": true,
     "active": true,
     "targets": "all",
