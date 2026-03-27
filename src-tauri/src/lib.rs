@@ -153,7 +153,7 @@ pub fn get_or_create_main_window(app: &AppHandle) -> Option<tauri::WebviewWindow
     let mut builder = WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
         .title("m3u8下载器")
         .inner_size(1200.0, 750.0)
-        .min_inner_size(1100.0, 740.0)
+        .min_inner_size(1200.0, 750.0)
         .center();
 
     #[cfg(target_os = "macos")]
