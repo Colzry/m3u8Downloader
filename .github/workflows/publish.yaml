@@ -138,19 +138,19 @@ jobs:
             "platforms": {
               "windows-x86_64": {
                 "signature": "$SIG_WIN",
-                "url": "https://github.com/Colzry/m3u8Downloader/releases/download/$VERSION/$(basename $WIN_FILE)"
+                "url": "https://github.com/Colzry/m3u8-downloader/releases/download/$VERSION/$(basename $WIN_FILE)"
               },
               "darwin-aarch64": {
                 "signature": "$SIG_MAC_ARM",
-                "url": "https://github.com/Colzry/m3u8Downloader/releases/download/$VERSION/$(basename $MAC_ARM_FILE)"
+                "url": "https://github.com/Colzry/m3u8-downloader/releases/download/$VERSION/$(basename $MAC_ARM_FILE)"
               },
               "darwin-x86_64": {
                 "signature": "$SIG_MAC_X64",
-                "url": "https://github.com/Colzry/m3u8Downloader/releases/download/$VERSION/$(basename $MAC_X64_FILE)"
+                "url": "https://github.com/Colzry/m3u8-downloader/releases/download/$VERSION/$(basename $MAC_X64_FILE)"
               },
               "linux-x86_64": {
                 "signature": "$SIG_LINUX",
-                "url": "https://github.com/Colzry/m3u8Downloader/releases/download/$VERSION/$(basename $LINUX_FILE)"
+                "url": "https://github.com/Colzry/m3u8-downloader/releases/download/$VERSION/$(basename $LINUX_FILE)"
               }
             }
           }
