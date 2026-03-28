@@ -15,7 +15,8 @@
 <img src="asset/3.png">
 
 ## 下载
-[点击去下载使用](https://github.com/Colzry/m3u8Downloader/releases)
+[点击去下载使用](https://github.com/Colzry/m3u8-downloader/releases)
+m3u8测试下载地址：https://sf1-cdn-tos.huoshanstatic.com/obj/media-fe/xgplayer_doc_video/hls/xgplayer-demo.m3u8
 
 ## 项目简介
 该项目是基于 Rust + Tokio + Tauri 构建的高性能 M3U8 视频下载器桌面应用。实现了以下功能：
@@ -57,7 +58,7 @@
 ## 快速启动 & 运行项目
 ```bash
 # 克隆仓库
-git clone https://github.com/Colzry/m3u8Downloader.git
+git clone https://github.com/Colzry/m3u8-downloader.git
 cd m3u8Downloader
 # 安装 JS 依赖
 yarn install    # 或 yarn, pnpm
