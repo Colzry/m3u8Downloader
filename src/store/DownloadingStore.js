@@ -106,15 +106,16 @@ export const useDownloadingStore = defineStore("Downloading", {
         },
 
         // 取消下载（保留临时目录，支持断点续传）
-        async cancelDownload(id) {
+      async cancelDownload(id) {
             const item = this.getItemById(id);
             if (!item) return;
 
-            const wasActive = item.status === 2;
-
+            // 清理该任务的所有事件监听器
+            this.cleanupTaskListeners(id);
+        
             // 如果任务正在下载，调用后端取消
             if (item.status === 2) {
-                try {
+              try {
                     await invoke("cancel_download", { id });
                 } catch (e) {
                     console.error(`取消任务 ${id} 失败:`, e);
@@ -124,10 +125,8 @@ export const useDownloadingStore = defineStore("Downloading", {
             // 更新状态为已取消
             this.updateItem(id, { status: 0 }); // 0 表示已取消
 
-            // 如果任务之前是活跃的，尝试启动等待队列中的下一个任务
-            if (wasActive) {
-                await this.tryStartNextDownloads();
-            }
+            // 如果任务之前是活跃的，尝试启动等待队列中的下一个任务  
+            await this.tryStartNextDownloads();
         },
 
         // 继续下载（使用断点续传）
@@ -257,7 +256,10 @@ export const useDownloadingStore = defineStore("Downloading", {
                 listen("download_progress", (event) => {
                     const data = event.payload;
                     if (data.id === taskId) {
-                        this.updateItem(data.id, { ...data });
+                      const currentItem = this.getItemById(data.id);
+                      if (currentItem && currentItem.status === 2) {
+                          this.updateItem(data.id, { ...data });
+                      }
                     }
                 }),
 
@@ -318,6 +320,7 @@ export const useDownloadingStore = defineStore("Downloading", {
                         keepAliveOnHover: true,
                         duration: 5000,
                     });
+                    console.error(this.getItemById(item.id).title + "下载失败")
                 });
             }
         },
