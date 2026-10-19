@@ -22,6 +22,8 @@ pub async fn start_download(
     app_handle: AppHandle,
     manager: tauri::State<'_, DownloadManager>, // 注入全局管理器
     headers: Option<std::collections::HashMap<String, String>>, // 自定义请求头
+    custom_key: Option<String>,                 // 可选：自定义外部密钥（Base64 / Hex / Data URI）
+    base_url: Option<String>,                   // 可选：离线/Data URI M3U8 的基准 URL
 ) -> Result<(), String> {
     if manager.task_exists(&id).await {
         log::warn!("任务 [{}] 已在运行中，忽略本次请求", id);
@@ -40,9 +42,9 @@ pub async fn start_download(
             .emit(
                 "create_temp_directory",
                 serde_json::json!({
-                                "id": id,
-                                "isCreatedTempDir": true,
-                                "message": "已创建临时下载目录",
+                    "id": id,
+                    "isCreatedTempDir": true,
+                    "message": "已创建临时下载目录",
                 }),
             )
             .ok();
@@ -65,6 +67,8 @@ pub async fn start_download(
     if let Some(headers_map) = headers {
         options.headers = headers_map;
     }
+    options.custom_key = custom_key;
+    options.base_url = base_url;
 
     // 开始下载 TS 文件到临时目录
     let download_result = download_m3u8(
@@ -92,8 +96,6 @@ pub async fn start_download(
     }
 
     // 检查是否是因为取消而结束的
-    // 如果是取消，任务已经从管理器中移除了，不需要再次删除
-    // 如果是正常完成，需要删除临时目录
     if !cancelled.load(std::sync::atomic::Ordering::Relaxed) {
         // 下载正常完成（未取消），删除任务并清理临时目录
         manager
@@ -371,7 +373,9 @@ pub async fn force_merge(
         return Err("没有已下载的分片，无法合并".into());
     }
 
-    // 按 part_N 中的数字 N 排序
+    // 去重并按 part_N 中的数字 N 排序
+    completed_names.sort();
+    completed_names.dedup();
     completed_names.sort_by_cached_key(|name| {
         name.strip_prefix("part_")
             .and_then(|s| s.strip_suffix(".ts"))

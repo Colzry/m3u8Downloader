@@ -3,10 +3,10 @@
 //! 协议格式（url 与 name 均需 URL 编码）：
 //!
 //! ```text
-//! m3u8dl://add?url=<m3u8下载地址>&name=<视频名称>
+//! m3u8dl://add?url=<m3u8下载地址或data:base64>&name=<视频名称>
 //! ```
 //!
-//! - `url`  : 必填，m3u8 下载地址（需以 `http://` 或 `https://` 开头）
+//! - `url`  : 必填，m3u8 下载地址（需以 `http://`、`https://` 或 `data:` 开头）
 //! - `name` : 选填，视频名称；缺省时尝试从 url 的文件名推导
 //!
 //! 兼容别名：`url`/`u`/`src`，`name`/`n`/`title`。
@@ -97,7 +97,10 @@ pub fn parse(raw: &str) -> Option<DeepLinkPayload> {
                 (true, false) => path.to_string(),
                 (true, true) => String::new(),
             };
-            if candidate.starts_with("http://") || candidate.starts_with("https://") {
+            if candidate.starts_with("http://")
+                || candidate.starts_with("https://")
+                || candidate.starts_with("data:")
+            {
                 target = Some(candidate);
             }
         }
@@ -111,8 +114,14 @@ pub fn parse(raw: &str) -> Option<DeepLinkPayload> {
         }
     };
 
-    if !(target.starts_with("http://") || target.starts_with("https://")) {
-        log::warn!("深链 url 参数不是有效的 http(s) 地址，已忽略: {}", target);
+    if !(target.starts_with("http://")
+        || target.starts_with("https://")
+        || target.starts_with("data:"))
+    {
+        log::warn!(
+            "深链 url 参数不是有效的 http(s) 或 data: 地址，已忽略: {}",
+            target
+        );
         return None;
     }
 
@@ -126,14 +135,16 @@ pub fn parse(raw: &str) -> Option<DeepLinkPayload> {
 
 /// 从 m3u8 地址推导默认视频名称
 fn derive_name(target: &str) -> String {
-    if let Ok(u) = tauri::Url::parse(target) {
-        if let Some(segment) = u
-            .path_segments()
-            .and_then(|segments| segments.filter(|s| !s.is_empty()).last())
-        {
-            let stem = segment.trim_end_matches(".m3u8").trim_end_matches(".M3U8");
-            if !stem.is_empty() {
-                return stem.to_string();
+    if !target.starts_with("data:") {
+        if let Ok(u) = tauri::Url::parse(target) {
+            if let Some(segment) = u
+                .path_segments()
+                .and_then(|segments| segments.filter(|s| !s.is_empty()).last())
+            {
+                let stem = segment.trim_end_matches(".m3u8").trim_end_matches(".M3U8");
+                if !stem.is_empty() {
+                    return stem.to_string();
+                }
             }
         }
     }
