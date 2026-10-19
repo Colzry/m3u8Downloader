@@ -80,8 +80,6 @@ const currentUpdate = shallowRef(null);
 const currentVersionInfo = ref(null);
 // 新版本的发布信息（confirm 状态下展示，从 GitHub API 拉取）
 const newVersionInfo = ref(null);
-// 已下载的更新对象（等用户确认后 install）
-const downloadedUpdate = shallowRef(null);
 // 用于取消下载
 const downloadCancelled = ref(false);
 // 用于取消检查更新
@@ -105,7 +103,6 @@ const onCheckUpdateClick = async (event) => {
     currentUpdate.value = null;
     currentVersionInfo.value = null;
     newVersionInfo.value = null;
-    downloadedUpdate.value = null;
 
     // 创建新的 AbortController
     checkAbortController = new AbortController();
@@ -160,8 +157,9 @@ const confirmUpdate = async () => {
     let contentLength = 0;
 
     try {
-        // 只下载，不安装，避免下载完自动重启
-        const downloaded = await currentUpdate.value.download((event) => {
+        // 只下载，不安装，避免下载完自动重启。
+        // 下载的数据会保存在 currentUpdate 实例上，install 时直接使用。
+        await currentUpdate.value.download((event) => {
             // 每个进度回调都检查是否已取消
             if (downloadCancelled.value) return;
 
@@ -186,8 +184,7 @@ const confirmUpdate = async () => {
         // 如果已被取消，不进入 ready 状态
         if (downloadCancelled.value) return;
 
-        // 保存已下载的更新，等待用户决定是否重启
-        downloadedUpdate.value = downloaded;
+        // 下载完成，等待用户决定何时安装
         updateModalStatus.value = "ready";
     } catch (e) {
         // 如果是用户主动取消，不显示错误
@@ -209,16 +206,48 @@ const cancelUpdateDownload = async () => {
     updateModalVisible.value = false;
 };
 
-// 用户选择立即重启（先安装再重启）
-const restartApp = async () => {
+// 用户选择稍后重启：先安装，但不主动重启
+// Windows 下安装程序会接管并自动重启应用；macOS/Linux 下更新文件会立即替换，下次启动生效
+const installLater = async () => {
+    if (!currentUpdate.value) {
+        updateModalVisible.value = false;
+        return;
+    }
+
+    updateModalVisible.value = false;
     try {
-        if (downloadedUpdate.value) {
-            await downloadedUpdate.value.install();
-        }
+        await currentUpdate.value.install();
     } catch (e) {
         console.error("安装更新失败:", e);
+        currentVersionInfo.value = { error: String(e) };
+        updateModalStatus.value = "failed";
+        updateModalVisible.value = true;
     }
-    await relaunch();
+};
+
+// 用户选择立即重启（先安装再重启）
+const restartApp = async () => {
+    if (!currentUpdate.value) return;
+
+    try {
+        await currentUpdate.value.install();
+    } catch (e) {
+        console.error("安装更新失败:", e);
+        currentVersionInfo.value = { error: String(e) };
+        updateModalStatus.value = "failed";
+        return;
+    }
+
+    // Windows 下 install 会直接退出进程并交由安装程序重启，不会执行到这里
+    try {
+        await relaunch();
+    } catch (e) {
+        console.error("重启应用失败:", e);
+        currentVersionInfo.value = {
+            error: `更新已安装，但自动重启失败，请手动重启应用。${String(e)}`,
+        };
+        updateModalStatus.value = "failed";
+    }
 };
 </script>
 
@@ -562,9 +591,7 @@ const restartApp = async () => {
                         <p class="update-success-sub">重启应用即可完成更新</p>
                     </div>
                     <div class="update-actions">
-                        <n-button @click="updateModalVisible = false"
-                            >稍后重启</n-button
-                        >
+                        <n-button @click="installLater">稍后重启</n-button>
                         <n-button type="primary" @click="restartApp">
                             立即重启
                         </n-button>

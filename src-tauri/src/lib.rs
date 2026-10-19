@@ -33,6 +33,7 @@ pub fn run() {
     // 2. 启动 Tauri 应用程序
     tauri::Builder::default()
         .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
             // 第二次启动（含由深链唤起的进程）将主窗口恢复并置顶。
             // 深链 URL 已由 deep-link 插件通过 on_open_url 转发给当前实例。

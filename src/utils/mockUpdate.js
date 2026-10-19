@@ -25,6 +25,8 @@ const MOCK_BODY = `## v1.3.0 更新内容
 export function createMockUpdate() {
   // 用于取消模拟下载
   let aborted = false;
+  // 是否已完成下载
+  let downloaded = false;
 
   const update = {
     available: true,
@@ -37,33 +39,38 @@ export function createMockUpdate() {
     // 模拟下载（仅下载，不安装）
     async download(onEvent, _options) {
       aborted = false;
+      downloaded = false;
       const totalSize = 25 * 1024 * 1024; // 25MB
-      let downloaded = 0;
+      let downloadedBytes = 0;
 
       onEvent?.({ event: "Started", data: { contentLength: totalSize } });
 
       const chunkSize = 512 * 1024;
-      while (downloaded < totalSize) {
+      while (downloadedBytes < totalSize) {
         if (aborted) return;
         await sleep(150);
-        const chunk = Math.min(chunkSize, totalSize - downloaded);
-        downloaded += chunk;
+        const chunk = Math.min(chunkSize, totalSize - downloadedBytes);
+        downloadedBytes += chunk;
         onEvent?.({ event: "Progress", data: { chunkLength: chunk } });
       }
 
       if (!aborted) {
         onEvent?.({ event: "Finished" });
-        // 返回模拟的 DownloadedUpdate 对象，包含 install 方法
-        return {
-          async install() {
-            console.log("[mock] 模拟安装更新");
-          },
-        };
+        downloaded = true;
       }
+    },
+
+    // 模拟安装（与真实 updater 一致：install 定义在 Update 实例上）
+    async install() {
+      if (!downloaded) {
+        throw new Error("Update.install called before Update.download");
+      }
+      console.log("[mock] 模拟安装更新");
     },
 
     async close() {
       aborted = true;
+      downloaded = false;
     },
   };
 
