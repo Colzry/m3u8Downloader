@@ -43,6 +43,52 @@ jobs:
           sed -i "s/^pkgrel=.*/pkgrel=1/" PKGBUILD
           grep -E '^(pkgver|pkgrel)=' PKGBUILD
 
+      - name: Normalize AUR SSH key
+        id: aur-key
+        shell: bash
+        env:
+          AUR_SSH_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+        run: |
+          python3 - <<'PY'
+          import os
+          import pathlib
+
+          key = os.environ["AUR_SSH_KEY"]
+          # 兼容粘贴时被转义成字面量 \n、CRLF 以及首尾多余的引号/空白
+          key = key.replace("\\n", "\n").replace("\r\n", "\n").replace("\r", "\n")
+          key = key.strip().strip('"').strip("'").strip()
+          if not key.endswith("\n"):
+              key += "\n"
+          if "PRIVATE KEY" not in key:
+              raise SystemExit(
+                  "AUR_SSH_PRIVATE_KEY 不是私钥，请确认粘贴的是私钥内容而不是 .pub 公钥"
+              )
+
+          path = pathlib.Path(os.environ["RUNNER_TEMP"]) / "aur_ssh_key"
+          path.write_text(key, encoding="utf-8")
+          path.chmod(0o600)
+          PY
+
+          KEY_FILE="$RUNNER_TEMP/aur_ssh_key"
+
+          # 校验私钥有效且未加密
+          if ! ssh-keygen -y -f "$KEY_FILE" -P "" < /dev/null > /dev/null 2>&1; then
+            echo "::error::AUR_SSH_PRIVATE_KEY 无法解析，请确认它是未设置密码的 OpenSSH 私钥"
+            exit 1
+          fi
+
+          # OpenSSH 10 已移除 DSA，提前给出明确提示
+          if ssh-keygen -l -f "$KEY_FILE" | grep -q "(DSA)"; then
+            echo "::error::OpenSSH 10 已移除 DSA 支持，请重新生成 ed25519 密钥"
+            exit 1
+          fi
+
+          {
+            echo "key<<EOF"
+            cat "$KEY_FILE"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Publish to AUR
         uses: KSXGitHub/github-actions-deploy-aur@v3
         with:
@@ -50,6 +96,6 @@ jobs:
           pkgbuild: ./PKGBUILD                     # 指向修改后的 PKGBUILD 路径
           commit_username: 'github-actions[bot]'
           commit_email: 'github-actions[bot]@users.noreply.github.com'
-          ssh_private_key: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+          ssh_private_key: ${{ steps.aur-key.outputs.key }}
           commit_message: "Update to v${{ steps.version.outputs.version }}"
           updpkgsums: true                         # 关键：Action 会在 Arch 容器中自动执行 updpkgsums 更新校验和
