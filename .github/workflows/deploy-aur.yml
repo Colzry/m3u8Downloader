@@ -32,6 +32,12 @@ jobs:
           echo "version=$PKGVER" >> "$GITHUB_OUTPUT"
           echo "Deploying AUR package version: $PKGVER"
 
+          # 从 AUR 拉取当前 PKGBUILD，避免在 GitHub 仓库中重复维护
+          AUR_PKGNAME="m3u8-downloader-colzry-bin"
+          rm -rf aur-src
+          git clone --depth=1 "https://aur.archlinux.org/${AUR_PKGNAME}.git" aur-src
+          cp aur-src/PKGBUILD ./PKGBUILD
+
           # 替换 PKGBUILD 中的 pkgver，并将 pkgrel 重置为 1
           sed -i "s/^pkgver=.*/pkgver=${PKGVER}/" PKGBUILD
           sed -i "s/^pkgrel=.*/pkgrel=1/" PKGBUILD
