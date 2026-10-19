@@ -273,6 +273,7 @@ pub struct DownloadOptions {
     pub headers: HashMap<String, String>,
     pub custom_key: Option<String>, // 可选：外部直接指定的 AES-128 密钥（支持 Base64 / Hex / Data URI）
     pub base_url: Option<String>, // 可选：当 M3U8 为 Data URI / 本地文本时用于解析相对路径的基准 URL
+    pub auto_retry: bool, // 可选：一轮下载后仍有分片缺失时，是否自动重试整轮下载，直到全部完成
 }
 
 impl DownloadOptions {
@@ -281,6 +282,7 @@ impl DownloadOptions {
             headers: HashMap::new(),
             custom_key: None,
             base_url: None,
+            auto_retry: false,
         }
     }
 }
@@ -289,6 +291,15 @@ pub enum DownloadResult {
     Success(String),   // 成功并且是有效 ts 文件
     Skipped(String),   // 下载成功，但内容无效或空，未写入磁盘
     Cancelled(String), // 因用户取消而中断下载
+}
+
+/// 计算指数退避时长（最多 10 秒，附加随机抖动）
+fn retry_delay(attempt: u32) -> Duration {
+    let exponent = attempt.saturating_sub(1).min(10);
+    let base_delay_secs = (1u64 << exponent).min(10);
+    let mut rng = SmallRng::from_entropy();
+    let random_millis = rng.gen_range(0..1000);
+    Duration::from_secs(base_delay_secs) + Duration::from_millis(random_millis)
 }
 
 /// 自定义下载请求头（自动过滤内部约定的特殊配置头，如 X-M3U8-Key / X-Base-Url）
@@ -665,6 +676,7 @@ pub async fn download_m3u8(
     // 提取特殊配置并预处理常规请求头
     let (custom_key, fallback_base_url) = extract_special_options(&options);
     let headers = preprocess_headers(&options.headers);
+    let auto_retry = options.auto_retry;
     log::info!("headers: {:#?}", headers);
 
     // --- 步骤 1: 解析M3U8，收集所有分片信息 ---
@@ -852,11 +864,10 @@ pub async fn download_m3u8(
     .await;
 
     // ==========================================
-    //  总体下载重试循环
-    //  当分片未集齐时，自动重新评估缺失分片并重试下载
+    //  总体下载循环
+    //  自动重试开启时，持续补齐缺失分片直到全部完成或用户取消
     // ==========================================
-    const MAX_OVERALL_RETRIES: usize = 5;
-    let mut overall_retries = 0;
+    let mut round = 0usize;
     let mut is_first_pass = true;
 
     loop {
@@ -878,7 +889,7 @@ pub async fn download_m3u8(
             "任务 [{}]: 从清单文件中加载了 {} 条已完成记录 (第 {} 轮)",
             id,
             completed_segment_names.len(),
-            overall_retries + 1
+            round + 1
         );
 
         for (seq_num, ts_url, filename, encryption) in &all_ts_segments {
@@ -928,7 +939,7 @@ pub async fn download_m3u8(
             total_chunks,
             completed_segment_names.len(),
             pending_downloads.len(),
-            overall_retries + 1
+            round + 1
         );
 
         // 如果本轮没有待下载分片，说明全部集齐，退出循环
@@ -960,8 +971,9 @@ pub async fn download_m3u8(
             handles.push(tokio::spawn(async move {
                 let _permit = semaphore.acquire().await?;
 
-                const MAX_RETRIES: usize = 15;
-                for attempt in 1..=MAX_RETRIES {
+                // 单分片始终按退避策略重试，最多尝试 MAX_SEGMENT_RETRIES 次
+                const MAX_SEGMENT_RETRIES: u32 = 15;
+                for attempt in 1..=MAX_SEGMENT_RETRIES {
                     if cancelled.load(Ordering::Relaxed) {
                         return Ok::<(), anyhow::Error>(());
                     }
@@ -996,23 +1008,22 @@ pub async fn download_m3u8(
                             return Ok(());
                         }
                         Ok(DownloadResult::Skipped(f)) => {
-                            log::warn!(
-                                "分片 [{}] 返回空数据（尝试 {}/{}），稍后重试",
-                                f,
-                                attempt,
-                                MAX_RETRIES
-                            );
-                            if attempt < MAX_RETRIES {
-                                let base_delay_secs = (1 << (attempt - 1)).min(10);
-                                let mut rng = SmallRng::from_entropy();
-                                let random_millis = rng.gen_range(0..1000);
-                                let total_delay = Duration::from_secs(base_delay_secs as u64)
-                                    + Duration::from_millis(random_millis);
-                                log::info!("分片 [{}] 空数据退避，等待 {:?}", f, total_delay);
-                                tokio::time::sleep(total_delay).await;
+                            if attempt < MAX_SEGMENT_RETRIES {
+                                let delay = retry_delay(attempt);
+                                log::warn!(
+                                    "分片 [{}] 返回空数据（第 {}/{} 次尝试），{:?} 后重试",
+                                    f,
+                                    attempt,
+                                    MAX_SEGMENT_RETRIES,
+                                    delay
+                                );
+                                tokio::time::sleep(delay).await;
                             } else {
-                                log::error!("分片 [{}] 所有重试均返回空数据，放弃该分片", f);
-                                return Ok(());
+                                log::error!(
+                                    "分片 [{}] 连续 {} 次返回空数据，放弃本轮下载",
+                                    f,
+                                    MAX_SEGMENT_RETRIES
+                                );
                             }
                         }
                         Ok(DownloadResult::Cancelled(f)) => {
@@ -1020,25 +1031,22 @@ pub async fn download_m3u8(
                             return Ok(());
                         }
                         Err(e) => {
-                            log::warn!(
-                                "分片 [{}] 第 {} 次下载失败，原因：{}",
-                                filename,
-                                attempt,
-                                e
-                            );
-                            if attempt < MAX_RETRIES {
-                                let base_delay_secs = (1 << (attempt - 1)).min(10);
-                                let mut rng = SmallRng::from_entropy();
-                                let random_millis = rng.gen_range(0..1000);
-                                let total_delay = Duration::from_secs(base_delay_secs as u64)
-                                    + Duration::from_millis(random_millis);
-
-                                log::info!("分片 [{}] 正在退避，等待 {:?}", filename, total_delay);
-                                tokio::time::sleep(total_delay).await;
+                            if attempt < MAX_SEGMENT_RETRIES {
+                                let delay = retry_delay(attempt);
+                                log::warn!(
+                                    "分片 [{}] 第 {}/{} 次下载失败：{}，{:?} 后重试",
+                                    filename,
+                                    attempt,
+                                    MAX_SEGMENT_RETRIES,
+                                    e,
+                                    delay
+                                );
+                                tokio::time::sleep(delay).await;
                             } else {
                                 log::error!(
-                                    "分片 [{}] 所有重试失败: {:?}, 将在下一轮重试",
+                                    "分片 [{}] 连续 {} 次下载失败：{}，放弃本轮下载",
                                     filename,
+                                    MAX_SEGMENT_RETRIES,
                                     e
                                 );
                             }
@@ -1091,29 +1099,32 @@ pub async fn download_m3u8(
             break;
         }
 
-        // 未集齐 → 检查是否达到最大重试次数
-        overall_retries += 1;
-        if overall_retries >= MAX_OVERALL_RETRIES {
+        // 未集齐 → 未开启自动重试时直接失败；开启时持续补齐缺失分片
+        if !auto_retry {
             log::error!(
-                "任务 [{}] 经过 {} 轮尝试仍未能集齐所有分片。预期: {}, 实际: {}. 下载失败",
+                "任务 [{}] 未能集齐所有分片且未开启自动重试。预期: {}, 实际: {}. 下载失败",
                 id,
-                MAX_OVERALL_RETRIES,
                 total_chunks,
                 completed_count
             );
+            // 停止速度监控任务
             cancelled.store(true, Ordering::SeqCst);
-            break;
+            return Err(anyhow!(
+                "有 {} 个分片下载失败，未开启自动重试",
+                total_chunks.saturating_sub(completed_count)
+            ));
         }
 
+        round += 1;
         log::warn!(
             "任务 [{}] 第 {} 轮未能集齐所有分片 (已集齐 {}/{})，3秒后开始第 {} 轮重试...",
             id,
-            overall_retries,
+            round,
             completed_count,
             total_chunks,
-            overall_retries + 1
+            round + 1
         );
-        tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+        tokio::time::sleep(Duration::from_secs(3)).await;
     }
 
     // 等待速度监控任务退出

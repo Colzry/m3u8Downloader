@@ -24,6 +24,7 @@ pub async fn start_download(
     headers: Option<std::collections::HashMap<String, String>>, // 自定义请求头
     custom_key: Option<String>,                 // 可选：自定义外部密钥（Base64 / Hex / Data URI）
     base_url: Option<String>,                   // 可选：离线/Data URI M3U8 的基准 URL
+    auto_retry: Option<bool>, // 可选：一轮下载后仍有分片缺失时，是否自动重试整轮下载（默认 false）
 ) -> Result<(), String> {
     if manager.task_exists(&id).await {
         log::warn!("任务 [{}] 已在运行中，忽略本次请求", id);
@@ -69,6 +70,7 @@ pub async fn start_download(
     }
     options.custom_key = custom_key;
     options.base_url = base_url;
+    options.auto_retry = auto_retry.unwrap_or(false);
 
     // 开始下载 TS 文件到临时目录
     let download_result = download_m3u8(

@@ -5,6 +5,7 @@ export const useSettingStore = defineStore("Setting", {
     downloadPath: "",
     downloadCount: 4, // 下载数
     threadCount: 16, // 线程数
+    autoRetryDownload: false, // 一轮下载后仍有分片缺失时，是否自动重试整轮下载直到完成
     physicalCores: 1, // 物理核心数
     logicalCores: 4, // 逻辑核心数
     isDeleteDownloadFile: false, // 是否删除下载原文件

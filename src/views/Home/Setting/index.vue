@@ -349,6 +349,30 @@ const restartApp = async () => {
                 </div>
                 <div class="set-item">
                     <div class="set-label">
+                        <div>下载失败自动重试</div>
+                    </div>
+                    <div class="set-value">
+                        <n-switch
+                            size="small"
+                            v-model:value="settingStore.autoRetryDownload"
+                        />
+                        <n-tooltip trigger="hover">
+                            <template #trigger>
+                                <n-icon
+                                    size="1.2rem"
+                                    style="cursor: pointer; margin-left: 5px"
+                                >
+                                    <HelpCircleOutline />
+                                </n-icon>
+                            </template>
+                            <span
+                                >开启后，若一轮下载结束仍有分片缺失，会自动重试整轮下载，直到全部分片完成或手动取消；关闭时单分片退避重试结束后即按失败结束。默认关闭。</span
+                            >
+                        </n-tooltip>
+                    </div>
+                </div>
+                <div class="set-item">
+                    <div class="set-label">
                         <div>深链自动下载</div>
                     </div>
                     <div class="set-value">

@@ -409,6 +409,7 @@ export const useDownloadingStore = defineStore("Downloading", {
           name: item.title,
           outputDir: item.downloadPath,
           threadCount: settingStore.threadCount,
+          autoRetry: settingStore.autoRetryDownload,
           headers: item.headers || {},
         }).catch(async (err) => {
           await this.cancelDownload(item.id);
