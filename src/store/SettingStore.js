@@ -3,8 +3,8 @@ import { defineStore } from "pinia";
 export const useSettingStore = defineStore("Setting", {
   state: () => ({
     downloadPath: "",
-    downloadCount: 1, // 下载数
-    threadCount: 12, // 线程数
+    downloadCount: 4, // 下载数
+    threadCount: 16, // 线程数
     physicalCores: 1, // 物理核心数
     logicalCores: 4, // 逻辑核心数
     isDeleteDownloadFile: false, // 是否删除下载原文件
