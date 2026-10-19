@@ -30,8 +30,8 @@ export default defineConfig(async () => ({
   ],
   resolve: {
     alias: {
-      "@": path.resolve(__dirname, "./src"), // 别名配置后，在tsconfig中也需要配置相应的别名
-      comps: path.resolve(__dirname, "./src/components"),
+      "@": path.resolve(import.meta.dirname, "./src"), // 别名配置后，在tsconfig中也需要配置相应的别名
+      comps: path.resolve(import.meta.dirname, "./src/components"),
     },
   },
   css: {// css预处理器
